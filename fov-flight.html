@@ -1,0 +1,1327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>FOV flight — geometry-native FPV over an open world</title>
+<!-- Cosmetic progressive enhancement only. Font stacks below fall back to system
+     fonts so the file is fully offline-capable (SPEC §2). Never load-bearing. -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,300;1,9..144,400&family=JetBrains+Mono:wght@400;500&display=swap"/>
+<style>
+  :root {
+    --bg:        #0a1018;
+    --panel:     #04080f;
+    --line:      #d4c08c;
+    --line-dim:  rgba(212, 192, 140, 0.55);
+    --line-faint:rgba(212, 192, 140, 0.22);
+    --accent:    #c97a5a;
+    --accent-dim:rgba(201, 122, 90, 0.5);
+    --accent-glow: rgba(201, 122, 90, 0.18);
+    --frame:     #1a2230;
+    --frame-soft: #0e1623;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--line);
+    font-family: 'Fraunces', ui-serif, Georgia, serif;
+    font-style: italic;
+    -webkit-font-smoothing: antialiased;
+  }
+  wrap { display: block; max-width: 1180px; margin: 0 auto; padding: 40px 24px 64px; }
+  h1 {
+    font-family: 'Fraunces', ui-serif, Georgia, serif;
+    font-style: italic; font-weight: 300;
+    font-size: clamp(26px, 3.4vw, 40px);
+    line-height: 1.1; letter-spacing: -0.01em;
+    margin: 0 0 12px; color: var(--line);
+  }
+  p.body {
+    font-family: 'Fraunces', ui-serif, Georgia, serif;
+    font-style: italic; font-weight: 400;
+    font-size: clamp(14px, 1.3vw, 16px); line-height: 1.55;
+    color: rgba(212, 192, 140, 0.78); margin: 0 0 22px; max-width: 80ch;
+  }
+  panel-title {
+    display: block;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-style: normal; font-size: 10px; letter-spacing: 0.22em;
+    color: rgba(212, 192, 140, 0.55); text-transform: uppercase; margin: 0 0 8px;
+  }
+
+  /* ─── camera panel (the rectilinear view) ─── */
+  camera-panel {
+    display: block; position: relative; width: 100%;
+    aspect-ratio: 16 / 9;
+    background: var(--panel); border: 1px solid var(--frame);
+    overflow: hidden; touch-action: none; user-select: none; cursor: grab;
+  }
+  camera-panel:active { cursor: grabbing; }
+  camera-panel::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 78% 86% at center, transparent 46%, rgba(0,0,0,0.5) 100%);
+    z-index: 1;
+  }
+  cam-svg { display: block; width: 100%; height: 100%; }
+  hud {
+    position: absolute; top: 12px; left: 14px; z-index: 3; pointer-events: none;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 10.5px; letter-spacing: 0.12em; line-height: 1.7; color: var(--accent);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+  hud .dim { color: rgba(212, 192, 140, 0.62); }
+  hud b { color: var(--line); font-weight: 500; }
+  readout {
+    position: absolute; top: 12px; right: 14px; z-index: 3; pointer-events: none;
+    text-align: right;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 10.5px; letter-spacing: 0.08em; line-height: 1.7;
+    color: rgba(212, 192, 140, 0.72); text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+  readout b { color: var(--accent); font-weight: 500; }
+  formula {
+    position: absolute; bottom: 10px; right: 14px; z-index: 3; pointer-events: none;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 10px; letter-spacing: 0.1em; color: rgba(212, 192, 140, 0.42);
+  }
+  drag-hint {
+    position: absolute; bottom: 10px; left: 14px; z-index: 3; pointer-events: none;
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 10px; letter-spacing: 0.14em; color: rgba(212, 192, 140, 0.4);
+  }
+  selftest-badge {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    z-index: 5; display: none; padding: 14px 20px; border: 1px solid var(--accent);
+    background: rgba(4,8,15,0.92); color: var(--line);
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 12px; letter-spacing: 0.06em; line-height: 1.7; white-space: pre; text-align: left;
+  }
+
+  /* ─── controls ─── */
+  toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin: 16px 0 0; align-items: stretch; }
+  .btn {
+    padding: 9px 13px; border: 1px solid var(--frame); background: var(--frame-soft);
+    color: rgba(212, 192, 140, 0.85);
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    cursor: pointer; transition: all 0.16s ease; user-select: none;
+  }
+  .btn:hover { color: var(--line); border-color: var(--accent-dim); background: rgba(201,122,90,0.06); }
+  .btn.active { color: var(--accent); border-color: var(--accent); background: rgba(201,122,90,0.08); }
+  .btn-sep { flex: 1 1 6px; min-width: 6px; }
+
+  controls-block {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 4px 26px; margin-top: 16px; padding: 16px 18px 14px;
+    border: 1px solid var(--frame); background: var(--frame-soft);
+  }
+  controls-row { display: grid; grid-template-columns: 116px 1fr 60px; align-items: center; gap: 14px; padding: 5px 0; }
+  controls-row label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 9px; letter-spacing: 0.16em; color: rgba(212, 192, 140, 0.62); text-transform: uppercase;
+  }
+  controls-row output {
+    font-family: 'JetBrains Mono', ui-monospace, monospace; font-style: normal;
+    font-size: 11px; color: var(--accent); text-align: right;
+  }
+  input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; margin: 0; cursor: pointer; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: rgba(212,192,140,0.3); border: none; }
+  input[type="range"]::-moz-range-track { height: 1px; background: rgba(212,192,140,0.3); border: none; }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--bg); border: 1.5px solid var(--accent); margin-top: -5.5px; cursor: grab;
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--bg);
+    border: 1.5px solid var(--accent); cursor: grab; box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+  foot { display:block; margin-top: 22px; font-family:'JetBrains Mono',ui-monospace,monospace; font-style:normal;
+         font-size: 9.5px; letter-spacing: 0.1em; color: rgba(212,192,140,0.4); line-height: 1.7; }
+  foot a { color: var(--accent-dim); }
+</style>
+</head>
+<body>
+<wrap>
+  <h1>FOV flight — the world streams past a camera that is really there</h1>
+  <p class="body">A real 3D world — a Gerstner sea, an island city, a mountain range — projected through a genuinely moving six-degree-of-freedom camera. The optical flow radiates from where you are going because the geometry is real, not because a layer was scaled. Drag the view to look anywhere, including straight back, and watch the world recede toward the point you are flying away from.</p>
+
+  <panel-title>Rectilinear camera · drag to look around · the flight path flies itself</panel-title>
+  <camera-panel id="cam-panel">
+    <hud id="hud"></hud>
+    <readout id="readout"></readout>
+    <svg id="cam-svg" viewBox="0 0 1280 720" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop id="skyStop0" offset="0"/>
+          <stop id="skyStop1" offset="0.58"/>
+          <stop id="skyStop2" offset="1"/>
+        </linearGradient>
+        <radialGradient id="sunGlow" cx="0.5" cy="0.5" r="0.5">
+          <stop id="sunStop0" offset="0"   stop-opacity="0.6"/>
+          <stop id="sunStop1" offset="0.22" stop-opacity="0.3"/>
+          <stop id="sunStop2" offset="1"   stop-opacity="0"/>
+        </radialGradient>
+        <!-- soft bloom for emissive accents (windows, sun, landmark beacon) -->
+        <filter id="bloom" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="5"/>
+        </filter>
+      </defs>
+      <rect id="sky" x="0" y="0" width="1280" height="720" fill="url(#skyGrad)"/>
+      <g id="sun"></g>
+      <g id="world"></g>
+      <g id="glow" filter="url(#bloom)"></g>
+      <g id="crosshair" opacity="0.5">
+        <path d="M624,360 L656,360 M640,344 L640,376" stroke="#d4c08c" stroke-width="1" fill="none" opacity="0.5"/>
+        <circle cx="640" cy="360" r="7" fill="none" stroke="#d4c08c" stroke-width="1" opacity="0.4"/>
+      </g>
+    </svg>
+    <drag-hint>DRAG · LOOK AROUND</drag-hint>
+    <formula id="formula">u = f·x/y &nbsp; v = f·z/y &nbsp;&nbsp; (rectilinear)</formula>
+    <selftest-badge id="selftest-badge"></selftest-badge>
+  </camera-panel>
+
+  <toolbar id="toolbar">
+    <div class="btn" id="btn-pause">⏸ Pause</div>
+    <div class="btn" id="btn-reset">↺ Reset</div>
+    <div class="btn" id="btn-units">Units: Metric</div>
+    <span class="btn-sep"></span>
+    <div class="btn" id="btn-fov70">FOV 70°</div>
+    <div class="btn" id="btn-fov120">FOV 120°</div>
+    <div class="btn" id="btn-fov140">FOV 140°</div>
+    <span class="btn-sep"></span>
+    <div class="btn" id="btn-scene-harbor">Scene: Harbor City</div>
+    <div class="btn" id="btn-scene-canyon">Scene: Red Canyon</div>
+  </toolbar>
+
+  <controls-block id="controls">
+    <controls-row><label>Field of view</label><input type="range" id="c-fov" min="30" max="160" step="1" value="70"/><output id="o-fov">70°</output></controls-row>
+    <controls-row><label>Speed ×</label><input type="range" id="c-speed" min="0" max="2.5" step="0.05" value="1"/><output id="o-speed">1.0×</output></controls-row>
+    <controls-row><label>Altitude ±</label><input type="range" id="c-alt" min="-30" max="120" step="1" value="0"/><output id="o-alt">+0</output></controls-row>
+    <controls-row><label>Wave height ×</label><input type="range" id="c-wave" min="0" max="2.5" step="0.05" value="1"/><output id="o-wave">1.0×</output></controls-row>
+    <controls-row><label>Wavelength ×</label><input type="range" id="c-lambda" min="0.5" max="2.5" step="0.05" value="1"/><output id="o-lambda">1.0×</output></controls-row>
+    <controls-row><label>Relief distance ×</label><input type="range" id="c-relief" min="0.5" max="2" step="0.05" value="1"/><output id="o-relief">1.0×</output></controls-row>
+    <controls-row><label>Sun elevation</label><input type="range" id="c-sun" min="3" max="80" step="1" value="28"/><output id="o-sun">28°</output></controls-row>
+    <controls-row><label>Visibility (km)</label><input type="range" id="c-vis" min="1.5" max="20" step="0.5" value="8"/><output id="o-vis">8.0</output></controls-row>
+  </controls-block>
+
+  <foot id="foot"></foot>
+</wrap>
+
+<script>
+"use strict";
+//═══════════════════════════════════════════════════════════════════════════════
+//  FOV-FLIGHT — geometry-native FPV flight renderer (SVG).
+//  Implements SPEC.md. Internally ordered by the SPEC §3.3 module DAG.
+//  Lineage: extends room-studio2.html's projection core into an animated open world.
+//═══════════════════════════════════════════════════════════════════════════════
+
+//───────────────────────────────────────────────────────────────────────────────
+//  MATH — vec3 / mat3 / quat  (hand-rolled, zero deps; SPEC §2)
+//───────────────────────────────────────────────────────────────────────────────
+const V = {
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+  len:(a)=>Math.hypot(a[0],a[1],a[2]),
+  norm:(a)=>{ const l=Math.hypot(a[0],a[1],a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+  lerp:(a,b,t)=>[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t],
+};
+
+// quat (x,y,z,w) — represents a camera→world rotation.
+const Q = {
+  ident:()=>[0,0,0,1],
+  fromAxisAngle:(ax,ang)=>{ const h=ang/2,s=Math.sin(h); const n=V.norm(ax); return [n[0]*s,n[1]*s,n[2]*s,Math.cos(h)]; },
+  mul:(a,b)=>[
+    a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],
+    a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],
+    a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],
+    a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2],
+  ],
+  conj:(q)=>[-q[0],-q[1],-q[2],q[3]],
+  norm:(q)=>{ const l=Math.hypot(q[0],q[1],q[2],q[3])||1; return [q[0]/l,q[1]/l,q[2]/l,q[3]/l]; },
+  rot:(q,v)=>{ // v' = q v q*
+    const x=q[0],y=q[1],z=q[2],w=q[3];
+    const tx=2*(y*v[2]-z*v[1]), ty=2*(z*v[0]-x*v[2]), tz=2*(x*v[1]-y*v[0]);
+    return [ v[0]+w*tx+(y*tz-z*ty), v[1]+w*ty+(z*tx-x*tz), v[2]+w*tz+(x*ty-y*tx) ];
+  },
+};
+
+// mat3 stored row-major [m00,m01,m02, m10,m11,m12, m20,m21,m22].
+const M3 = {
+  fromQuat:(q)=>{ // rotation matrix equivalent to Q.rot(q, ·)
+    const x=q[0],y=q[1],z=q[2],w=q[3];
+    const xx=x*x,yy=y*y,zz=z*z,xy=x*y,xz=x*z,yz=y*z,wx=w*x,wy=w*y,wz=w*z;
+    return [ 1-2*(yy+zz), 2*(xy-wz), 2*(xz+wy),
+             2*(xy+wz), 1-2*(xx+zz), 2*(yz-wx),
+             2*(xz-wy), 2*(yz+wx), 1-2*(xx+yy) ];
+  },
+  mulVec:(m,v)=>[ m[0]*v[0]+m[1]*v[1]+m[2]*v[2], m[3]*v[0]+m[4]*v[1]+m[5]*v[2], m[6]*v[0]+m[7]*v[1]+m[8]*v[2] ],
+};
+
+// Intrinsic yaw(world Z) → pitch(body X) → roll(body Y), camera→world.
+// Identity ⇒ forward +Y, up +Z, right +X (matches the lineage's frame).
+function eulerToQuat(yaw, pitch, roll){
+  const qy=Q.fromAxisAngle([0,0,1],yaw);
+  const qp=Q.fromAxisAngle([1,0,0],pitch);
+  const qr=Q.fromAxisAngle([0,1,0],roll);
+  return Q.norm(Q.mul(Q.mul(qy,qp),qr));
+}
+// Build attitude whose forward (+Y) points along `fwd`, with given roll about forward.
+function headingQuat(fwd, roll){
+  const f=V.norm(fwd);
+  const pitch=Math.asin(Math.max(-1,Math.min(1,f[2])));
+  const yaw=Math.atan2(-f[0], f[1]);
+  return eulerToQuat(yaw, pitch, roll||0);
+}
+// Euler readout from a camera→world quat (for the HUD only; SPEC §4.1 Euler-at-boundary).
+function quatToEuler(q){
+  const f=Q.rot(q,[0,1,0]);
+  const yaw=Math.atan2(-f[0], f[1]);
+  const pitch=Math.asin(Math.max(-1,Math.min(1,f[2])));
+  return { yaw, pitch };
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  CONSTANTS  (SPEC §3.4)
+//───────────────────────────────────────────────────────────────────────────────
+const G          = 9.81;
+const M_PER_FT   = 3.280839895;
+const MPS_TO_MPH = 2.23694;
+const MPS_TO_KMH = 3.6;
+const VIEW_W     = 1280;
+const VIEW_H     = 720;
+const DEG        = Math.PI/180;
+const DT_CLAMP   = 0.05;          // SPEC §5.10 — prevents tunneling on tab-restore
+const FOV_MIN=30, FOV_MAX=160;    // SPEC §5.6
+
+function clampByte(x){ return x<0?0:(x>255?255:Math.round(x)); }
+function rgb(c){ return "rgb("+clampByte(c[0])+","+clampByte(c[1])+","+clampByte(c[2])+")"; }
+function clamp(x,a,b){ return x<a?a:(x>b?b:x); }
+function smoothstep(e0,e1,x){ const t=clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); }
+// Toon/cel quantisation of Lambert n·L into a few flat bands → flat-illustration look
+// (no continuous gradient across a face, so individual facets read as flat regions).
+function toonStep(nl){ return nl>0.28 ? 1.0 : (nl>-0.08 ? 0.66 : 0.46); }
+// Seeded PRNG (mulberry32) — deterministic scene generation (SPEC §4 generator.seed).
+function mulberry32(seed){
+  let a=seed>>>0;
+  return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  PROJECTION INTERFACE  (SPEC §6).  v1 implements Rectilinear; Equirect is the
+//  documented Phase-5 hook — same contract, so the deferred panorama attaches
+//  without engine surgery (SPEC §4.1, §11 Phase 5).
+//    project(Pworld, ctx) → { u, v, depth } | null   (null = clipped)
+//  ctx = { R(world→cam mat3), pos, f, panelW, panelH, nearM }
+//───────────────────────────────────────────────────────────────────────────────
+const RectilinearProjection = {
+  name: "rectilinear",
+  project(Pw, ctx){
+    const c = M3.mulVec(ctx.R, V.sub(Pw, ctx.pos));   // camera space; camera looks +Yc
+    if (c[1] <= ctx.nearM) return null;
+    return { u: ctx.panelW/2 + ctx.f*c[0]/c[1], v: ctx.panelH/2 - ctx.f*c[2]/c[1], depth: c[1] };
+  },
+};
+// EquirectProjection — DEFERRED (SPEC §11 Phase 5). Correct per the §6 contract so
+// the abstraction is real, not a stub. A second panel binding this is post-v1 work.
+const EquirectProjection = {
+  name: "equirect",
+  project(Pw, ctx){
+    const c = M3.mulVec(ctx.R, V.sub(Pw, ctx.pos));
+    const r = Math.hypot(c[0], c[1]);
+    const theta = Math.atan2(c[0], c[1]);                 // yaw within the plate
+    const phi   = Math.atan2(c[2], r);                    // pitch within the plate
+    return { u: ctx.panelW/2 + (ctx.panelW/(2*Math.PI))*theta,
+             v: ctx.panelH/2 - (ctx.panelW/(2*Math.PI))*phi, depth: V.len(c) };
+  },
+};
+
+//───────────────────────────────────────────────────────────────────────────────
+//  SCENE DRIVER INTERFACE  (SPEC §6).  update(t) → CAM. v1: PathDriver (kinematic).
+//  CAM = { pos, attitude(quat), vel, fovDeg, nearM, speedMps, headingYaw, distM }.
+//───────────────────────────────────────────────────────────────────────────────
+function makePathDriver(scene){
+  const fl = scene.flight;
+  // Catmull-Rom spline (uniform) through control points, endpoints duplicated.
+  const ctrl = fl.path.map(k=>k.p);
+  const P = [ctrl[0], ...ctrl, ctrl[ctrl.length-1]];
+  const segs = P.length - 3;
+  function cr(p0,p1,p2,p3,t){
+    const t2=t*t,t3=t2*t,o=[0,0,0];
+    for(let i=0;i<3;i++) o[i]=0.5*((2*p1[i])+(-p0[i]+p2[i])*t+(2*p0[i]-5*p1[i]+4*p2[i]-p3[i])*t2+(-p0[i]+3*p1[i]-3*p2[i]+p3[i])*t3);
+    return o;
+  }
+  // Arc-length LUT (distance → position).
+  const SAMP=160, lut=[]; let acc=0, prev=cr(P[0],P[1],P[2],P[3],0);
+  for(let s=0;s<segs;s++){
+    for(let i=(s===0?0:1);i<=SAMP;i++){
+      const pos=cr(P[s],P[s+1],P[s+2],P[s+3],i/SAMP);
+      acc += V.len(V.sub(pos,prev)); lut.push({s:acc,pos}); prev=pos;
+    }
+  }
+  const total = acc;
+  function posAtDist(d){
+    d=clamp(d,0,total);
+    let lo=0,hi=lut.length-1;
+    while(lo<hi){ const m=(lo+hi)>>1; if(lut[m].s<d) lo=m+1; else hi=m; }
+    if(lo===0) return lut[0].pos;
+    const a=lut[lo-1], b=lut[lo], u=(d-a.s)/((b.s-a.s)||1);
+    return V.lerp(a.pos,b.pos,u);
+  }
+  // Speed profile → time LUT (t → distance), rebuilt when speed× changes. Pure in t
+  // so Reset (t=0) is exact and there is no integration drift (SPEC §5.10/§5.11).
+  let timeLUT=[], tEnd=0, speedScaleCache=null;
+  function baseSpeed(s){
+    const sp=fl.speed;
+    if(sp.profile==="const") return sp.mps;
+    if(sp.profile==="easeInHoldAccel"){
+      const a=total*0.12, b=total*0.7;
+      if(s<a) return sp.hi - (sp.hi-sp.lo)*(s/a);
+      if(s<b) return sp.lo;
+      return sp.lo + (sp.hi-sp.lo)*((s-b)/((total-b)||1));
+    }
+    // keyframes
+    const kf=sp.keyframes;
+    if(s<=kf[0].atM) return kf[0].mps;
+    for(let i=0;i<kf.length-1;i++) if(s<=kf[i+1].atM){ const u=(s-kf[i].atM)/((kf[i+1].atM-kf[i].atM)||1); return kf[i].mps+u*(kf[i+1].mps-kf[i].mps); }
+    return kf[kf.length-1].mps;
+  }
+  function rebuildTime(speedScale){
+    speedScaleCache=speedScale;
+    timeLUT=[{t:0,s:0}]; let s=0,t=0; const dt=1/120, guard=20000; let n=0;
+    while(s<total && n<guard){ s += Math.max(0.001, baseSpeed(s)*speedScale)*dt; t+=dt; timeLUT.push({t,s}); n++; }
+    tEnd=t;
+  }
+  function distAtTime(t){
+    if(timeLUT.length<2) return 0;
+    if(t>=tEnd) return total;
+    let lo=0,hi=timeLUT.length-1;
+    while(lo<hi){ const m=(lo+hi)>>1; if(timeLUT[m].t<t) lo=m+1; else hi=m; }
+    if(lo===0) return 0;
+    const a=timeLUT[lo-1], b=timeLUT[lo], u=(t-a.t)/((b.t-a.t)||1);
+    return a.s+(b.s-a.s)*u;
+  }
+  rebuildTime(1);
+
+  return {
+    name:"path", total, tEnd:()=>tEnd,
+    update(t, P_live, lookQuat){
+      if(speedScaleCache!==P_live.speedScale) rebuildTime(P_live.speedScale);
+      const s = distAtTime(t);
+      const ds = 2.0;
+      const p0 = posAtDist(s-ds), p1 = posAtDist(s), p2 = posAtDist(s+ds);
+      const fwd = V.norm(V.sub(p2,p0));
+      const spd = baseSpeed(s)*P_live.speedScale;
+      // auto-bank: coordinated-turn roll from yaw rate (SPEC §5.3)
+      let roll=0;
+      if(fl.autoBank){
+        const yaw0=Math.atan2(-V.norm(V.sub(p1,p0))[0], V.norm(V.sub(p1,p0))[1]);
+        const yaw1=Math.atan2(-fwd[0], fwd[1]);
+        let dy=yaw1-yaw0; while(dy>Math.PI)dy-=2*Math.PI; while(dy<-Math.PI)dy+=2*Math.PI;
+        const yawRate = (dy/ds) * spd;                       // rad/s
+        roll = Math.atan(spd*yawRate/G) * (fl.bankGainG||1);
+      }
+      const pathOri = headingQuat(fwd, roll);
+      const attitude = Q.mul(pathOri, lookQuat);             // SPEC §5.2: path ⊗ look
+      let pos = [p1[0], p1[1], p1[2] + P_live.altOffsetM];
+      if(pos[2] < 0.5) pos[2]=0.5;                           // SPEC §5.13 altitude floor
+      return { pos, attitude, vel:V.scale(fwd,spd), fovDeg:P_live.fovDeg, nearM:scene.camera.nearM,
+               speedMps:spd, distM:s, headingYaw:Math.atan2(-fwd[0],fwd[1]), pitch:Math.asin(clamp(fwd[2],-1,1)), roll };
+    },
+  };
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  SCENE SCHEMA  (SPEC §4).  Plain JS objects; the engine reads ONLY these for
+//  scene content. A new world = a new SCENE, with ZERO engine edits.
+//───────────────────────────────────────────────────────────────────────────────
+function harborCity(){
+  // City buildings via seeded generator (deterministic). Dusk silhouettes with
+  // glowing windows — the reference's "flat-illustration at golden hour" read.
+  const gen = { count:155, spreadM:[720,380], heightRangeM:[45,300], tallestAtCenter:true, seed:7 };
+  const rnd = mulberry32(gen.seed);
+  const buildings=[];
+  for(let i=0;i<gen.count;i++){
+    const ang=rnd()*Math.PI*2, rad=Math.sqrt(rnd());
+    const x=Math.cos(ang)*rad*gen.spreadM[0]*0.5;
+    const y=Math.sin(ang)*rad*gen.spreadM[1]*0.5;
+    const centerW = gen.tallestAtCenter ? (1-rad)*(1-rad) : rnd();
+    const h = gen.heightRangeM[0] + (gen.heightRangeM[1]-gen.heightRangeM[0])*(0.35*rnd()+0.65*centerW);
+    const w = 18+rnd()*34, d = 18+rnd()*34;
+    const roofs=["flat","flat","step","spire"]; const roof=roofs[(rnd()*roofs.length)|0];
+    const v=rnd()*16;                                  // dusk navy with slight variation
+    buildings.push({ x,y, footprintM:[w,d], heightM:h, roof, albedo:[30+v*0.7, 38+v*0.7, 60+v], lit:rnd() });
+  }
+  // Foreground sea-stacks scattered along the over-water approach — these RUSH past
+  // the camera (the reference's foreground-parallax signature) and occlude correctly.
+  const rrnd = mulberry32(41); const stacks=[];
+  for(let i=0;i<26;i++){
+    let x=(rrnd()*2-1)*230; if(Math.abs(x)<26) x+= x>=0?26:-26;
+    const y=-1300 + rrnd()*3500;
+    stacks.push({ x, y, radiusM:9+rrnd()*22, heightM:16+rrnd()*64, albedo:[44,40,52] });
+  }
+  // Dark conifer silhouettes ringing the island shore (midground colour pop).
+  const prnd = mulberry32(93); const pines=[];
+  for(let i=0;i<60;i++){
+    const a=prnd()*Math.PI*2, r=860+prnd()*150;
+    pines.push({ x:Math.cos(a)*r, y:3200+Math.sin(a)*r*0.6, radiusM:7+prnd()*5, heightM:24+prnd()*26, albedo:[150,66,70] });
+  }
+  return {
+    meta:{ name:"Harbor City", units:"metric", displayUnits:"metric" },
+    camera:{ fovDegDefault:70, nearM:0.5, altDefaultM:40 },
+    atmosphere:{
+      haze:{ visibilityM:6500, color:[240,196,150], model:"exp" },                    // warm golden-hour haze
+      sky:{ gradientStops:[ {at:0.0,rgb:[24,28,60]}, {at:0.52,rgb:[120,92,124]}, {at:1.0,rgb:[245,196,150]} ] },  // indigo → dusk violet → gold
+      sun:{ azimuthDeg:10, elevationDeg:8, color:[255,212,150], intensity:0.95, ambient:0.46, glow:[255,214,150] }, // low, near-ahead (backlit city + water glitter)
+    },
+    ground:{
+      type:"sea", seaLevelM:0,
+      waves:[
+        { lambdaM:18, amplitudeM:0.9, dirDeg:8,   steepness:0.85, phase:0.0 },
+        { lambdaM:11, amplitudeM:0.5, dirDeg:-22, steepness:0.75, phase:1.3 },
+        { lambdaM:31, amplitudeM:1.3, dirDeg:20,  steepness:0.70, phase:2.1 },
+        { lambdaM:6,  amplitudeM:0.22,dirDeg:-50, steepness:0.60, phase:0.7 },
+      ],
+      // flat-illustration water: saturated deep teal near → cooler mid; haze pulls far to gold.
+      render:{ style:"flat", fill:[16,42,60], fillDeepen:[34,74,92], crestLine:[255,216,168],
+               glitter:[255,210,150], flowLine:[120,140,165], lineWidthPx:0.8 },
+      foam:{ jacobianThreshold:0.12, color:[244,228,206] },
+    },
+    objects:[
+      { id:"mtns", type:"terrain",
+        origin:[0,8400,0], extentM:[9000,3000],     // a distant ridge BEHIND the city (y=3200)
+        peaks:[ {x:-3400,y:8300,heightM:850, radiusM:950},  {x:-2500,y:8600,heightM:1250,radiusM:1100},
+                {x:-1600,y:8200,heightM:1550,radiusM:1150}, {x:-700, y:8800,heightM:1100,radiusM:950},
+                {x:0,    y:8400,heightM:1700,radiusM:1200}, {x:800,  y:8900,heightM:1300,radiusM:1050},
+                {x:1700, y:8300,heightM:1600,radiusM:1150}, {x:2600, y:8700,heightM:1000,radiusM:1000},
+                {x:3400, y:8400,heightM:900, radiusM:950} ],
+        material:{ albedo:[78,84,116], snowAboveM:1450, snowAlbedo:[236,228,232] } },   // cool blue-violet dusk relief
+      { id:"island", type:"cityGround",
+        origin:[0,3200,0], radiusM:980, shoreFalloffM:160, riseM:7, material:{ albedo:[46,44,58] } },
+      { id:"pines", type:"foliage", trees:pines },
+      { id:"downtown", type:"city", origin:[0,3200,0], buildings,
+        material:{ litRGB:[120,118,150], windowRGB:[255,196,120], winChance:0.5 } },
+      { id:"landmark", type:"city", origin:[140,3160,0],
+        material:{ litRGB:[235,150,110], windowRGB:[255,210,150], winChance:0 },
+        buildings:[ { x:0,y:0, footprintM:[44,44], heightM:330, roof:"spire", albedo:[120,62,52], emissive:true } ] },
+      { id:"stacks", type:"rocks", rocks:stacks },
+    ],
+    flight:{
+      // low & fast over the water, then climb to thread the skyline (a real drone move)
+      path:[ {p:[0,-1500,40]}, {p:[0,-200,42]}, {p:[-30,1400,68]}, {p:[35,3050,118]}, {p:[80,4700,150]} ],
+      speed:{ profile:"keyframes", keyframes:[ {atM:0,mps:120},{atM:700,mps:34},{atM:4200,mps:34},{atM:6400,mps:95} ] },
+      autoBank:true, bankGainG:1.0, loop:false,
+    },
+  };
+}
+
+// Second, materially different world — proves extensibility with ZERO engine edits
+// (SPEC §4, PRD §3 extensibility metric). Heightfield ground (a slot canyon), no sea,
+// no city. Same engine, different SCENE object.
+function redCanyon(){
+  return {
+    meta:{ name:"Red Canyon", units:"metric", displayUnits:"imperial" },
+    camera:{ fovDegDefault:88, nearM:0.5, altDefaultM:34 },
+    atmosphere:{
+      haze:{ visibilityM:6000, color:[214,176,138], model:"exp" },
+      sky:{ gradientStops:[ {at:0.0,rgb:[30,28,48]}, {at:0.55,rgb:[96,84,96]}, {at:1.0,rgb:[206,168,132]} ] },
+      sun:{ azimuthDeg:70, elevationDeg:22, color:[255,236,206], intensity:1.05, ambient:0.42, glow:[255,224,176] },
+    },
+    ground:{
+      type:"heightfield", seaLevelM:0,
+      // Canyon carved along +Y: narrow winding floor, tall stratified walls.
+      heightFn:(x,y)=>{
+        const meander = 140*Math.sin(y*0.0016) + 60*Math.sin(y*0.0051+1.7);
+        const d = Math.abs(x - meander);
+        const floorW = 70, rim = 520;
+        const wall = smoothstep(floorW, rim, d) * (420 + 120*Math.sin(y*0.004));
+        const mesa = Math.max(0, d-rim)*0.18;
+        const ripple = 6*Math.sin(x*0.02)*Math.cos(y*0.015);
+        return wall + mesa + ripple;
+      },
+      render:{ albedo:[176,96,58], strata:[ {aboveM:0,rgb:[150,82,52]}, {aboveM:120,rgb:[188,108,66]}, {aboveM:300,rgb:[206,150,96]} ] },
+    },
+    objects:[],
+    flight:{
+      path:[ {p:[0,-800,30]}, {p:[120,500,28]}, {p:[-90,1900,30]}, {p:[150,3200,34]}, {p:[-40,4600,40]} ],
+      speed:{ profile:"easeInHoldAccel", lo:26, hi:70 },
+      autoBank:true, bankGainG:1.15, loop:false,
+    },
+  };
+}
+
+const SCENES = { harbor: harborCity, canyon: redCanyon };
+
+//───────────────────────────────────────────────────────────────────────────────
+//  GERSTNER SEA  (SPEC §5.4/§5.5).  Trochoidal sum + horizontal Jacobian for foam.
+//───────────────────────────────────────────────────────────────────────────────
+function makeGerstner(waves, P_live){
+  // Pre-resolve per-wave terms with live wave-height/length scaling.
+  const N = waves.length;
+  const comps = waves.map(wv=>{
+    const lambda = wv.lambdaM * P_live.lambdaScale;
+    const A = wv.amplitudeM * P_live.waveScale;
+    const k = 2*Math.PI/lambda;
+    return { k, w:Math.sqrt(G*k), dx:Math.cos(wv.dirDeg*DEG), dy:Math.sin(wv.dirDeg*DEG), A,
+             Q: A>1e-6 ? wv.steepness/(k*A*N) : 0, phase:wv.phase||0 };
+  });
+  // sample(X,Y,t) → { p:[x',y',z'], detJ }
+  return function sample(X,Y,t){
+    let px=X, py=Y, pz=0, Jxx=1,Jxy=0,Jyx=0,Jyy=1;
+    for(let i=0;i<comps.length;i++){
+      const c=comps[i];
+      const th = c.k*(c.dx*X+c.dy*Y) - c.w*t + c.phase;
+      const ct=Math.cos(th), st=Math.sin(th);
+      px += c.Q*c.A*c.dx*ct;  py += c.Q*c.A*c.dy*ct;  pz += c.A*st;
+      const QAs = c.Q*c.A*st, kdx=c.k*c.dx, kdy=c.k*c.dy;
+      Jxx += -QAs*c.dx*kdx; Jxy += -QAs*c.dx*kdy; Jyx += -QAs*c.dy*kdx; Jyy += -QAs*c.dy*kdy;
+    }
+    return { p:[px,py,pz], detJ: Jxx*Jyy - Jxy*Jyx };
+  };
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  WORLD-ANCHORED GROUND WINDOW  (SPEC §4.1, §5.12).  Concentric LOD rings of a
+//  world-anchored grid in a moving window around the camera. Finer rings overlap
+//  the next coarser ring outward and paint on top (depthBias) so there are no LOD
+//  cracks — the coarse ring underneath is continuous. Beyond the last ring, a
+//  polar far-band fades into haze (replaces the failed attempt's mist treadmill).
+//  Used for BOTH the sea (Gerstner sampler, water style) and heightfield grounds
+//  (heightFn sampler, lit style) — one generator, many worlds.
+//───────────────────────────────────────────────────────────────────────────────
+const SEA_RINGS = [
+  { inner:0,   outer:96,  pitch:6,  cls:"sea0" },
+  { inner:96,  outer:216, pitch:12, cls:"sea1" },
+  { inner:216, outer:480, pitch:24, cls:"sea2" },
+  { inner:480, outer:960, pitch:48, cls:"sea3" },
+];
+
+function inFrustum(ctx, camPt){
+  // cheap cone cull on a cell centroid (with margin), in camera space.
+  if(camPt[1] <= ctx.nearM*0.5) return false;
+  const m = ctx.frustumTan;                 // tan(halfFov) with margin
+  if(Math.abs(camPt[0]) > camPt[1]*m) return false;
+  if(Math.abs(camPt[2]) > camPt[1]*ctx.frustumTanV) return false;
+  return true;
+}
+
+function groundWindow(ground, ctx, t, P_live, out){
+  const isSea = ground.type==="sea";
+  const seaLevel = ground.seaLevelM||0;
+  const sampler = isSea ? makeGerstner(ground.waves, P_live)
+                        : (x,y)=>({ p:[x,y, seaLevel + (ground.heightFn? ground.heightFn(x,y):0)], detJ:1 });
+  const rd = ground.render;
+  const camX=ctx.pos[0], camY=ctx.pos[1];
+  const lightL = ctx.sunL, vis=ctx.visM, hazeC=ground.__hazeC, sunInt=ctx.sunInt, amb=ctx.amb;
+  const fillC = isSea? rd.fill : null, deepC = isSea? rd.fillDeepen : null;
+
+  for(let r=0;r<SEA_RINGS.length;r++){
+    const ring=SEA_RINGS[r];
+    const p=ring.pitch;
+    const overlap = (r<SEA_RINGS.length-1)? SEA_RINGS[r+1].pitch : p;   // extend outward
+    const outer = ring.outer + overlap;
+    const i0=Math.floor((camX-outer)/p), i1=Math.ceil((camX+outer)/p);
+    const j0=Math.floor((camY-outer)/p), j1=Math.ceil((camY+outer)/p);
+    const depthBias = (SEA_RINGS.length-r)*0.4;   // finer rings paint slightly nearer (on top)
+    for(let i=i0;i<i1;i++){
+      const x0=i*p, x1=x0+p;
+      for(let j=j0;j<j1;j++){
+        const y0=j*p, y1=y0+p;
+        const cx=x0+p*0.5, cy=y0+p*0.5;
+        const d=Math.hypot(cx-camX, cy-camY);
+        if(d<ring.inner || d>=outer) continue;
+        // frustum cull on centroid before the (more expensive) corner sampling
+        const cc = M3.mulVec(ctx.R, [cx-ctx.pos[0], cy-ctx.pos[1], seaLevel-ctx.pos[2]]);
+        if(!inFrustum(ctx, cc)) continue;
+        // sample 4 corners
+        const s00=sampler(x0,y0,t), s10=sampler(x1,y0,t), s11=sampler(x1,y1,t), s01=sampler(x0,y1,t);
+        const v00=s00.p,v10=s10.p,v11=s11.p,v01=s01.p;
+        // normal (for lit grounds + horizon read)
+        const nrm=V.norm(V.cross(V.sub(v10,v00), V.sub(v01,v00)));
+        let col;
+        if(isSea){
+          // flat-illustration water: deep saturated near → cooler mid (haze adds the far gold).
+          const dn=clamp(d/900,0,1);
+          col=V.lerp(fillC, deepC, dn);
+          // golden sun-glitter along the sun's reflection bearing, broken into flecks by crests
+          const bx=cx-camX, by=cy-camY, bl=Math.hypot(bx,by)||1;
+          const align=(bx*ctx.sunAzDir[0]+by*ctx.sunAzDir[1])/bl;
+          if(align>0.985 && rd.glitter){               // tight reflection column (not a wide cone)
+            const crest=clamp(0.6+v00[2]*0.3,0,1);
+            col=V.lerp(col, rd.glitter, clamp((align-0.985)/0.015,0,1)*crest*0.7);
+          }
+          // foam only at genuine breaking crests (sparse white flecks, not a grid)
+          const md=Math.min(s00.detJ,s10.detJ,s11.detJ,s01.detJ);
+          const th=ground.foam.jacobianThreshold;
+          if(md<th){ const cov=clamp(1-md/th,0,1); col=V.lerp(col, ground.foam.color, cov*cov*0.5); }
+        } else {
+          // lit ground — toon-banded (flat regions, no facet gradient) + height strata tint
+          let alb=rd.albedo;
+          if(rd.strata){ for(const st of rd.strata) if(v00[2]>=st.aboveM) alb=st.rgb; }
+          const I = amb + sunInt*toonStep(V.dot(nrm,lightL));
+          col=[alb[0]*I, alb[1]*I, alb[2]*I];
+        }
+        // haze by camera-space depth
+        const f=1-Math.exp(-cc[1]/vis);
+        col=V.lerp(col, hazeC, f);
+        out.push({ verts:[v00,v10,v11,v01], col, depth:cc[1]-depthBias, kind:"poly",
+                   cls: isSea? ring.cls : "land", stroke:isSea });
+      }
+    }
+  }
+
+  // crest accents (constant-Y rows) on the nearest ring only — the warm crestLine
+  // (SPEC §5.7a/§5.12). Cheap: O(rows), and only where it reads.
+  if(isSea){
+    const ring=SEA_RINGS[0], p=ring.pitch, R=ring.outer;
+    const sampler0=sampler;
+    const j0=Math.floor((camY-R)/p), j1=Math.ceil((camY+R)/p);
+    for(let j=j0;j<=j1;j++){
+      if(((j%3)+3)%3!==0) continue;          // sparse warm highlights, not a full grid
+      const y=j*p; const pts=[];
+      for(let i=Math.floor((camX-R)/p); i<=Math.ceil((camX+R)/p); i++){
+        const x=i*p; if(Math.hypot(x-camX,y-camY)>R) { if(pts.length>1) out.push(makeAccent(pts.slice(),rd.crestLine)); pts.length=0; continue; }
+        pts.push(sampler0(x,y,t).p);
+      }
+      if(pts.length>1) out.push(makeAccent(pts, rd.crestLine));
+    }
+  }
+}
+function makeAccent(worldPts, color){
+  // depth/clip handled at render time; bias toward camera so it sits on the water.
+  let cy=0; for(const p of worldPts) cy+=p[1]; cy/=worldPts.length;
+  return { kind:"accentpoly", pts:worldPts, color, depthRef:cy };
+}
+
+// Polar far-band: the horizon haze rim beyond the last LOD ring (SPEC §5.12).
+function farBand(ground, ctx){
+  const out=[]; const seaLevel=ground.seaLevelM||0;
+  const r0=SEA_RINGS[SEA_RINGS.length-1].outer, r1=ctx.visM*1.7;
+  const SECT=64, SLICE=6;
+  const baseC = ground.type==="sea" ? ground.render.fillDeepen
+              : (ground.render.strata? ground.render.strata[0].rgb : ground.render.albedo);
+  // heightfield worlds keep their distant relief silhouette in the haze rim (sea is flat).
+  const hf = (ground.type!=="sea" && ground.heightFn) ? ground.heightFn : null;
+  const yaw = ctx.lookYaw;
+  const mk=(a,d)=>{ const x=ctx.pos[0]+Math.sin(a)*d, y=ctx.pos[1]+Math.cos(a)*d; return [x,y, hf? seaLevel+hf(x,y) : seaLevel]; };
+  for(let s=0;s<SECT;s++){
+    const a0 = -Math.PI + (s/SECT)*2*Math.PI, a1=-Math.PI+((s+1)/SECT)*2*Math.PI;
+    // skip sectors clearly behind the look direction (cheap cull)
+    let am=(a0+a1)/2 - yaw; while(am>Math.PI)am-=2*Math.PI; while(am<-Math.PI)am+=2*Math.PI;
+    if(Math.abs(am) > 1.7) continue;
+    for(let k=0;k<SLICE;k++){
+      const d0=r0*Math.pow(r1/r0, k/SLICE), d1=r0*Math.pow(r1/r0,(k+1)/SLICE);
+      const v00=mk(a0,d0),v10=mk(a1,d0),v11=mk(a1,d1),v01=mk(a0,d1);
+      const dmid=(d0+d1)/2;
+      const f=1-Math.exp(-dmid/ctx.visM);
+      const col=V.lerp(baseC, ground.__hazeC, Math.min(1,f*1.05));
+      // true depth so the rim occludes correctly against mountains/city (no sort hack)
+      out.push({ verts:[v00,v10,v11,v01], col, depth:dmid, kind:"poly", cls:"far", stroke:false });
+    }
+  }
+  return out;
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  TERRAIN (heightfield relief) + CITY (instanced solids)  (SPEC §4.1, §5.7).
+//  Static → generated once into world-space facets, cached, re-shaded by camera.
+//───────────────────────────────────────────────────────────────────────────────
+function terrainHeight(obj, x, y){
+  let h=0;
+  for(const pk of obj.peaks){
+    const d=Math.hypot(x-pk.x, y-pk.y);
+    if(d<pk.radiusM){ const t=Math.cos((d/pk.radiusM)*Math.PI*0.5); h += pk.heightM*t*t; }
+  }
+  return h;
+}
+function buildTerrain(obj, P_live){
+  // coarse world grid over extent centred on origin (relief is far → coarse is fine).
+  const facets=[];
+  const cxs=obj.origin[0], cys=obj.origin[1]*P_live.reliefScale;
+  const ex=obj.extentM[0], ey=obj.extentM[1];
+  const NX=46, NY=20;
+  const grid=[];
+  for(let j=0;j<=NY;j++){ grid[j]=[]; for(let i=0;i<=NX;i++){
+    const x=cxs-ex/2 + (i/NX)*ex;
+    const y=cys-ey/2 + (j/NY)*ey;
+    grid[j][i]=[x,y, terrainHeight(obj,x,y - (cys-obj.origin[1]))];
+  }}
+  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
+    const a=grid[j][i],b=grid[j][i+1],c=grid[j+1][i+1],d=grid[j+1][i];
+    facets.push({ verts:[a,b,c,d], obj });
+  }
+  return facets;
+}
+function islandHeight(obj, x, y){
+  const d=Math.hypot(x-obj.origin[0], y-obj.origin[1]);
+  const edge=obj.radiusM, fall=obj.shoreFalloffM;
+  if(d>edge) return 0;
+  const t=smoothstep(edge, edge-fall, d);    // 1 inside, →0 at shore
+  return obj.riseM*t;
+}
+function buildIsland(obj){
+  const facets=[]; const RINGS=5, SECT=40;
+  for(let r=0;r<RINGS;r++){
+    const d0=(r/RINGS)*obj.radiusM, d1=((r+1)/RINGS)*obj.radiusM;
+    for(let s=0;s<SECT;s++){
+      const a0=(s/SECT)*2*Math.PI, a1=((s+1)/SECT)*2*Math.PI;
+      const mk=(a,d)=>{ const x=obj.origin[0]+Math.cos(a)*d, y=obj.origin[1]+Math.sin(a)*d; return [x,y, islandHeight(obj,x,y)]; };
+      facets.push({ verts:[mk(a0,d0),mk(a1,d0),mk(a1,d1),mk(a0,d1)], obj });
+    }
+  }
+  return facets;
+}
+function buildCity(obj, islandObj){
+  const facets=[];
+  for(const b of obj.buildings){
+    const bx=obj.origin[0]+b.x, by=obj.origin[1]+b.y;
+    const gz = islandObj ? islandHeight(islandObj, bx, by) : 0;
+    const w=b.footprintM[0]/2, d=b.footprintM[1]/2, h=b.heightM, top=gz+h;
+    const x0=bx-w,x1=bx+w,y0=by-d,y1=by+d;
+    const ctr=[bx,by,(gz+top)/2];
+    const E=!!b.emissive, L=b.lit;
+    // walls carry base→top verts (base0,base1,top1,top0) so windows can be laid on them
+    const wall=(a,bb,c,dd)=>facets.push({ verts:[a,bb,c,dd], albedo:b.albedo, ctr, wall:true, lit:L, emissive:E });
+    wall([x0,y0,gz],[x1,y0,gz],[x1,y0,top],[x0,y0,top]);   // -Y
+    wall([x1,y1,gz],[x0,y1,gz],[x0,y1,top],[x1,y1,top]);   // +Y
+    wall([x1,y0,gz],[x1,y1,gz],[x1,y1,top],[x1,y0,top]);   // +X
+    wall([x0,y1,gz],[x0,y0,gz],[x0,y0,top],[x0,y1,top]);   // -X
+    const cap=(verts,c)=>facets.push({ verts, albedo:b.albedo, ctr:c, wall:false, lit:L, emissive:E });
+    if(b.roof==="spire"){
+      const apex=[bx,by,top+h*0.5];
+      cap([[x0,y0,top],[x1,y0,top],apex],[bx,by,top]); cap([[x1,y0,top],[x1,y1,top],apex],[bx,by,top]);
+      cap([[x1,y1,top],[x0,y1,top],apex],[bx,by,top]); cap([[x0,y1,top],[x0,y0,top],apex],[bx,by,top]);
+    } else if(b.roof==="step"){
+      const sw=w*0.6, sd=d*0.6, sh=h*0.3, st=top+sh;
+      const sx0=bx-sw,sx1=bx+sw,sy0=by-sd,sy1=by+sd, sc=[bx,by,(top+st)/2];
+      cap([[sx0,sy0,top],[sx1,sy0,top],[sx1,sy0,st],[sx0,sy0,st]],sc);
+      cap([[sx1,sy1,top],[sx0,sy1,top],[sx0,sy1,st],[sx1,sy1,st]],sc);
+      cap([[sx1,sy0,top],[sx1,sy1,top],[sx1,sy1,st],[sx1,sy0,st]],sc);
+      cap([[sx0,sy1,top],[sx0,sy0,top],[sx0,sy0,st],[sx0,sy1,st]],sc);
+      cap([[sx0,sy0,st],[sx1,sy0,st],[sx1,sy1,st],[sx0,sy1,st]],sc);
+    } else {
+      cap([[x0,y0,top],[x1,y0,top],[x1,y1,top],[x0,y1,top]],[bx,by,top]);
+    }
+  }
+  return facets;
+}
+// Foreground sea-stacks / conifers as low-poly cones — real geometry, so they parallax
+// and occlude correctly (the reference's rushing-foreground depth cue).
+function buildCones(items, baseFn){
+  const facets=[]; const N=5;
+  for(const it of items){
+    const gz = baseFn ? baseFn(it.x,it.y) : 0;
+    const apex=[it.x,it.y, gz+it.heightM], pts=[];
+    for(let i=0;i<N;i++){ const a=(i/N)*2*Math.PI; pts.push([it.x+Math.cos(a)*it.radiusM, it.y+Math.sin(a)*it.radiusM, gz]); }
+    const ctr=[it.x,it.y,gz+it.heightM*0.42];
+    for(let i=0;i<N;i++) facets.push({ verts:[pts[i],pts[(i+1)%N],apex], albedo:it.albedo, ctr });
+  }
+  return facets;
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  RENDER CORE  (SPEC §3.1).  cull → clip → sort → shade → project → serialize.
+//───────────────────────────────────────────────────────────────────────────────
+// Sutherland–Hodgman near-plane clip of a camera-space polygon (Yc ≥ near).
+function clipNearPoly(verts, near){
+  const out=[]; const n=verts.length;
+  for(let i=0;i<n;i++){
+    const a=verts[i], b=verts[(i+1)%n];
+    const ina=a[1]>=near, inb=b[1]>=near;
+    if(ina) out.push(a);
+    if(ina!==inb){
+      const t=(near-a[1])/((b[1]-a[1])||1e-9);
+      out.push([a[0]+t*(b[0]-a[0]), near, a[2]+t*(b[2]-a[2])]);
+    }
+  }
+  return out;
+}
+function clipNearSeg(a,b,near){
+  const ina=a[1]>=near, inb=b[1]>=near;
+  if(!ina&&!inb) return null;
+  if(ina&&inb) return [a,b];
+  const t=(near-a[1])/((b[1]-a[1])||1e-9);
+  const cp=[a[0]+t*(b[0]-a[0]), near, a[2]+t*(b[2]-a[2])];
+  return ina?[a,cp]:[cp,b];
+}
+
+const ENGINE = {
+  scene:null, driver:null, staticPrims:null, hazeC:null,
+};
+
+function loadScene(scene){
+  // Precompute static world-space facets (terrain, island, city) once (SPEC §6:
+  // cached/regenerated-on-change for static objects). Sea is per-frame.
+  scene.__driver = makePathDriver(scene);
+  scene.atmosphere.__hazeC = scene.atmosphere.haze.color;
+  scene.ground.__hazeC = scene.atmosphere.haze.color;
+  ENGINE.scene=scene; ENGINE.driver=scene.__driver; ENGINE.hazeC=scene.atmosphere.haze.color;
+  rebuildStatic(scene, P);
+  // sky gradient
+  const st=scene.atmosphere.sky.gradientStops;
+  document.getElementById("skyStop0").setAttribute("stop-color", rgb(st[0].rgb));
+  document.getElementById("skyStop1").setAttribute("stop-color", rgb(st[1].rgb));
+  document.getElementById("skyStop2").setAttribute("stop-color", rgb(st[2].rgb));
+}
+function rebuildStatic(scene, P_live){
+  const prims=[]; let island=null;
+  for(const o of scene.objects) if(o.type==="cityGround") island=o;
+  for(const o of scene.objects){
+    if(o.type==="terrain") for(const fc of buildTerrain(o,P_live)) prims.push({ verts:fc.verts, obj:o, kind:"terrain" });
+    else if(o.type==="cityGround") for(const fc of buildIsland(o)) prims.push({ verts:fc.verts, obj:o, kind:"island" });
+    else if(o.type==="city") for(const fc of buildCity(o, island)) prims.push({ verts:fc.verts, albedo:fc.albedo, ctr:fc.ctr, kind:"city", wall:fc.wall, lit:fc.lit, emissive:fc.emissive, cityMat:o.material });
+    else if(o.type==="rocks") for(const fc of buildCones(o.rocks)) prims.push({ verts:fc.verts, albedo:fc.albedo, ctr:fc.ctr, kind:"rock" });
+    else if(o.type==="foliage") for(const fc of buildCones(o.trees, (x,y)=>island?islandHeight(island,x,y):0)) prims.push({ verts:fc.verts, albedo:fc.albedo, ctr:fc.ctr, kind:"foliage" });
+  }
+  ENGINE.staticPrims=prims;
+}
+
+function sunDir(atm){
+  const az=atm.sun.azimuthDeg*DEG, el=atm.sun.elevationDeg*DEG;
+  return V.norm([Math.sin(az)*Math.cos(el), Math.cos(az)*Math.cos(el), Math.sin(el)]);
+}
+
+function buildContext(CAM){
+  const f=(VIEW_W/2)/Math.tan(CAM.fovDeg*DEG/2);
+  const R=M3.fromQuat(Q.conj(CAM.attitude));
+  const halfH = Math.atan((VIEW_H/2)/f);
+  const e=quatToEuler(CAM.attitude);
+  return {
+    R, pos:CAM.pos, f, panelW:VIEW_W, panelH:VIEW_H, nearM:CAM.nearM,
+    frustumTan: Math.tan(Math.min(1.5, CAM.fovDeg*DEG/2)+0.20),
+    frustumTanV: Math.tan(Math.min(1.5, halfH)+0.20),
+    sunL:ENGINE.__sunL, sunAzDir:V.norm([ENGINE.__sunL[0], ENGINE.__sunL[1], 0]),
+    sunInt:ENGINE.scene.atmosphere.sun.intensity, amb:ENGINE.scene.atmosphere.sun.ambient,
+    visM:P.visM, lookYaw:e.yaw,
+  };
+}
+
+let lastEmitCount=0;
+function renderFrame(CAM){
+  const scene=ENGINE.scene;
+  ENGINE.__sunL = sunDir(scene.atmosphere);
+  const ctx = buildContext(CAM);
+  const hazeC = scene.ground.__hazeC;
+  const prims=[];
+
+  // 1-2. Generate animated ground (sea or heightfield) + far-band horizon.
+  groundWindow(scene.ground, ctx, simT, P, prims);
+  const fb=farBand(scene.ground, ctx); for(const p of fb) prims.push(p);
+
+  // Static solids — toon-shaded (flat regions) + haze, back-face cull, near depth.
+  const sunL=ctx.sunL;
+  for(const pr of ENGINE.staticPrims){
+    const vs=pr.verts;
+    // world-space back-face cull (SPEC §5.9): skip facets facing away
+    const nrm=V.norm(V.cross(V.sub(vs[1],vs[0]), V.sub(vs[2],vs[0])));
+    let centroid=[0,0,0]; for(const v of vs){centroid[0]+=v[0];centroid[1]+=v[1];centroid[2]+=v[2];}
+    centroid=V.scale(centroid,1/vs.length);
+    const toCam=V.sub(centroid, ctx.pos), facing=V.dot(nrm,toCam);
+    if(facing>0 && pr.kind!=="terrain") continue;              // cull closed-solid back faces (terrain is a sheet)
+    const n = facing>0 ? V.scale(nrm,-1) : nrm;
+    const cc=M3.mulVec(ctx.R, toCam);
+    const fH=1-Math.exp(-Math.max(cc[1],0)/ctx.visM);
+    const nl=V.dot(n,sunL);
+    let col;
+    if(pr.emissive){                                           // landmark beacon — glows, lifted
+      const I=0.8+0.4*Math.max(0,nl); col=[pr.albedo[0]*I+70, pr.albedo[1]*I+30, pr.albedo[2]*I+20];
+    } else {
+      let alb;
+      if(pr.kind==="terrain"){
+        alb=pr.obj.material.albedo;
+        if(pr.obj.material.snowAboveM && centroid[2]>pr.obj.material.snowAboveM){
+          const t=smoothstep(pr.obj.material.snowAboveM, pr.obj.material.snowAboveM+350, centroid[2]);
+          alb=V.lerp(alb, pr.obj.material.snowAlbedo, t);
+        }
+      } else if(pr.kind==="island") alb=pr.obj.material.albedo;
+      else if(pr.kind==="city"){ alb=pr.albedo; if(pr.cityMat && nl>0.28) alb=pr.cityMat.litRGB; }  // sun-rim catches the lit tone
+      else alb=pr.albedo;                                      // rock / foliage
+      const I=ctx.amb + ctx.sunInt*toonStep(nl);
+      col=[alb[0]*I, alb[1]*I, alb[2]*I];
+    }
+    col=V.lerp(col, hazeC, fH);
+    const cls = pr.kind==="city"?"bldg" : (pr.kind==="rock"?"rock" : (pr.kind==="foliage"?"foliage":"land"));
+    prims.push({ verts:vs, col, depth:cc[1], kind:"poly", cls, stroke:false });
+    if(pr.emissive) prims.push({ verts:vs, color:pr.albedo, depth:cc[1], kind:"emis" });
+
+    // glowing windows: emissive floor-bands on near, camera-facing city walls (dusk read)
+    if(pr.kind==="city" && pr.wall && pr.cityMat && pr.cityMat.winChance>0 && cc[1]<700 && pr.lit!==undefined){
+      const b0=vs[0],b1=vs[1],t0=vs[3];
+      const wh=V.len(V.sub(t0,b0)), floors=Math.min(7, Math.max(1, Math.floor(wh/15)));
+      const off=V.scale(nrm,0.4), wc=pr.cityMat.windowRGB;
+      for(let fi=1;fi<floors;fi++){
+        if(((pr.lit*7.13 + fi*0.41)%1) > pr.cityMat.winChance) continue;
+        const u0=fi/floors, u1=u0+0.05;
+        const e0=V.add(V.lerp(b0,t0,u0),off), e1=V.add(V.lerp(b1,vs[2],u0),off),
+              e2=V.add(V.lerp(b1,vs[2],u1),off), e3=V.add(V.lerp(b0,t0,u1),off);
+        prims.push({ verts:[e0,e1,e2,e3], color:wc, depth:cc[1]-0.5, kind:"emis" });
+      }
+    }
+  }
+
+  // 4-5-8. Transform → near-clip → project ONCE → screen-bbox cull. (One projection
+  // pass; off-panel facets dropped so they never reach the DOM — SPEC §9 budget.)
+  const W=ctx.panelW, H=ctx.panelH, cu=W/2, cv=H/2, f=ctx.f;
+  const draw=[];
+  for(const pr of prims){
+    if(pr.kind==="poly"){
+      const cam=pr.verts.map(v=>M3.mulVec(ctx.R, V.sub(v, ctx.pos)));
+      const clipped=clipNearPoly(cam, ctx.nearM);
+      if(clipped.length<3) continue;
+      let path="M", minu=1e9,maxu=-1e9,minv=1e9,maxv=-1e9;
+      for(let i=0;i<clipped.length;i++){
+        const c=clipped[i]; const u=cu+f*c[0]/c[1], vv=cv-f*c[2]/c[1];
+        if(u<minu)minu=u; if(u>maxu)maxu=u; if(vv<minv)minv=vv; if(vv>maxv)maxv=vv;
+        path += (i?"L":"")+u.toFixed(1)+","+vv.toFixed(1)+" ";
+      }
+      if(maxu<0||minu>W||maxv<0||minv>H) continue;            // fully off-panel
+      draw.push({ d:path+"Z", fill:rgb(pr.col), cls:pr.cls, depth:pr.depth });
+    } else if(pr.kind==="accentpoly"){
+      // crest polyline: clip each segment, project, drop wholly off-panel segments.
+      const cam=pr.pts.map(v=>M3.mulVec(ctx.R, V.sub(v, ctx.pos)));
+      let path="", depthSum=0, dn=0, any=false;
+      for(let i=0;i<cam.length-1;i++){
+        const cl=clipNearSeg(cam[i],cam[i+1],ctx.nearM);
+        if(!cl) continue;
+        const a=cl[0],b=cl[1];
+        const u0=cu+f*a[0]/a[1], v0=cv-f*a[2]/a[1], u1=cu+f*b[0]/b[1], v1=cv-f*b[2]/b[1];
+        depthSum+=a[1]+b[1]; dn+=2;
+        if((u0<0&&u1<0)||(u0>W&&u1>W)||(v0<0&&v1<0)||(v0>H&&v1>H)) continue;
+        path+="M"+u0.toFixed(1)+","+v0.toFixed(1)+"L"+u1.toFixed(1)+","+v1.toFixed(1); any=true;
+      }
+      if(!any) continue;
+      draw.push({ d:path, accent:true, color:rgb(pr.color), depth:(depthSum/dn)-1.0 });
+    } else if(pr.kind==="emis"){
+      // emissive quad (window / beacon): crisp in #world (depth-sorted, occluded) AND
+      // a soft copy collected for the #glow bloom layer.
+      const cam=pr.verts.map(v=>M3.mulVec(ctx.R, V.sub(v, ctx.pos)));
+      const clipped=clipNearPoly(cam, ctx.nearM);
+      if(clipped.length<3) continue;
+      let path="M", minu=1e9,maxu=-1e9,minv=1e9,maxv=-1e9;
+      for(let i=0;i<clipped.length;i++){
+        const c=clipped[i]; const u=cu+f*c[0]/c[1], vv=cv-f*c[2]/c[1];
+        if(u<minu)minu=u; if(u>maxu)maxu=u; if(vv<minv)minv=vv; if(vv>maxv)maxv=vv;
+        path += (i?"L":"")+u.toFixed(1)+","+vv.toFixed(1)+" ";
+      }
+      if(maxu<0||minu>W||maxv<0||minv>H) continue;
+      draw.push({ d:path+"Z", fill:rgb(pr.color), cls:"win", depth:pr.depth-0.6, glow:true });
+    }
+  }
+
+  // 6. Painter's sort, back-to-front (far first). 9. Serialize → one innerHTML per layer.
+  draw.sort((a,b)=>b.depth-a.depth);
+  const parts=new Array(draw.length); const glowParts=[];
+  for(let i=0;i<draw.length;i++){
+    const d=draw[i];
+    if(d.accent) parts[i]='<path class="crest" d="'+d.d+'" fill="none" stroke="'+d.color+'"/>';
+    else if(d.cls==="bldg"||d.cls==="win") { parts[i]='<path class="'+d.cls+'" d="'+d.d+'" fill="'+d.fill+'"/>';
+           if(d.glow) glowParts.push('<path d="'+d.d+'" fill="'+d.fill+'"/>'); }
+    else parts[i]='<path class="'+d.cls+'" d="'+d.d+'" fill="'+d.fill+'" stroke="'+d.fill+'"/>';  // seam-seal
+  }
+  lastEmitCount=draw.length;
+  document.getElementById("world").innerHTML = parts.join("");
+  document.getElementById("glow").innerHTML  = glowParts.join("");
+
+  // Sun disc + soft halo, BEHIND the world so solids silhouette against it (golden hour).
+  const sa=scene.atmosphere.sun, sc=M3.mulVec(ctx.R, ctx.sunL);
+  let sunHTML="";
+  if(sa.glow && sc[1]>0.03){
+    const su=cu+f*sc[0]/sc[1], sv=cv-f*sc[2]/sc[1], Rr=Math.max(W,H)*0.6;
+    document.getElementById("sunStop0").setAttribute("stop-color", rgb(sa.glow));
+    document.getElementById("sunStop1").setAttribute("stop-color", rgb(sa.glow));
+    sunHTML='<circle cx="'+su.toFixed(1)+'" cy="'+sv.toFixed(1)+'" r="'+Rr.toFixed(0)+'" fill="url(#sunGlow)"/>'+
+            '<circle cx="'+su.toFixed(1)+'" cy="'+sv.toFixed(1)+'" r="30" fill="'+rgb(sa.color)+'"/>';
+  }
+  document.getElementById("sun").innerHTML = sunHTML;
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  UI · CONTROLS · LOOK-DRAG · HUD  (SPEC §5.1, §5.2, §5.6, §5.11)
+//───────────────────────────────────────────────────────────────────────────────
+const P = {  // live tunable params (SPEC §3.4)
+  fovDeg:70, speedScale:1, altOffsetM:0, waveScale:1, lambdaScale:1, reliefScale:1,
+  sunElevDeg:28, visM:8000,
+};
+let look = { yaw:0, pitch:0, roll:0 };     // user lookOffset (drag)
+let simT = 0, paused=false, lastReal=null, rafId=null;
+let displayImperial=false;
+
+function lookQuat(){ return eulerToQuat(look.yaw, look.pitch, look.roll); }
+
+function applySceneDefaults(scene){
+  P.fovDeg=scene.camera.fovDegDefault; P.speedScale=1; P.altOffsetM=0;
+  P.waveScale=1; P.lambdaScale=1; P.reliefScale=1;
+  P.sunElevDeg=scene.atmosphere.sun.elevationDeg; P.visM=scene.atmosphere.haze.visibilityM;
+  displayImperial = scene.meta.displayUnits==="imperial";
+  syncControls();
+}
+
+function resetFlight(){
+  simT=0; look={yaw:0,pitch:0,roll:0};
+  applySceneDefaults(ENGINE.scene);
+  ENGINE.scene.atmosphere.sun.elevationDeg = P.sunElevDeg;
+  rebuildStatic(ENGINE.scene, P);
+  lastReal=null;
+}
+
+// drag → lookOffset at 0.25°/px (SPEC §5.2). No pitch clamp (quaternion).
+function attachLookDrag(el){
+  let active=false,lastX=0,lastY=0,pid=null;
+  el.addEventListener("pointerdown",e=>{ active=true; lastX=e.clientX; lastY=e.clientY; pid=e.pointerId; try{el.setPointerCapture(pid);}catch(_){} e.preventDefault(); });
+  el.addEventListener("pointermove",e=>{
+    if(!active) return;
+    const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
+    look.yaw   += -0.25*DEG*dx;     // drag-right → world swings right (look left), lineage feel
+    look.pitch +=  0.25*DEG*dy;
+  });
+  const end=()=>{ if(!active)return; active=false; if(pid!==null&&el.hasPointerCapture(pid)){try{el.releasePointerCapture(pid);}catch(_){}} pid=null; };
+  el.addEventListener("pointerup",end); el.addEventListener("pointercancel",end); el.addEventListener("lostpointercapture",end);
+  // double-click recentres the look offset
+  el.addEventListener("dblclick",()=>{ look={yaw:0,pitch:0,roll:0}; });
+}
+
+function fmtLen(m){ return displayImperial ? (m*M_PER_FT).toFixed(0)+" ft" : m.toFixed(0)+" m"; }
+function fmtSpeed(mps){ return displayImperial ? (mps*MPS_TO_MPH).toFixed(0)+" mph" : (mps*MPS_TO_KMH).toFixed(0)+" km/h"; }
+function updateHUD(CAM){
+  // look bearing relative to flight heading (so "facing back" reflects the drag)
+  const lookYawDeg = -look.yaw/DEG;        // sign for display
+  const ld=((Math.round(lookYawDeg)%360)+360)%360; const lsigned = ld>180? ld-360: ld;
+  const lp=Math.round(look.pitch/DEG);
+  let face;
+  const a=Math.abs(lsigned);
+  if(a<18) face="FORWARD"; else if(a<70) face=(lsigned>0?"FWD-RIGHT":"FWD-LEFT");
+  else if(a<112) face=(lsigned>0?"RIGHT":"LEFT"); else if(a<158) face=(lsigned>0?"BACK-RIGHT":"BACK-LEFT"); else face="BACK";
+  if(Math.abs(lp)>4) face+=lp>0?" · UP":" · DOWN";
+  document.getElementById("hud").innerHTML =
+    '<span class="dim">LOOK</span> '+(lsigned>=0?"+":"−")+a+'° '+(lp>=0?"+":"−")+Math.abs(lp)+'° <b>'+face+'</b>'+
+    '<br><span class="dim">HDG</span> '+(Math.round(CAM.headingYaw/DEG))+'°  <span class="dim">PITCH</span> '+(Math.round(CAM.pitch/DEG))+'°  <span class="dim">ROLL</span> '+(Math.round(CAM.roll/DEG))+'°';
+  const pct = ENGINE.driver.total? Math.min(100, 100*CAM.distM/ENGINE.driver.total):0;
+  document.getElementById("readout").innerHTML =
+    '<b>'+fmtSpeed(CAM.speedMps)+'</b>  <span class="dim">SPD</span>'+
+    '<br><b>'+fmtLen(CAM.pos[2])+'</b>  <span class="dim">ALT</span>'+
+    '<br><b>'+CAM.fovDeg.toFixed(0)+'°</b>  <span class="dim">FOV</span>'+
+    '<br><b>'+fmtLen(CAM.distM)+'</b>  <span class="dim">'+pct.toFixed(0)+'% PATH</span>'+
+    '<br><b>'+fps.toFixed(0)+'</b> <span class="dim">FPS · '+lastEmitCount+' el</span>';
+}
+
+function syncControls(){
+  const set=(id,val,out)=>{ const e=document.getElementById(id); if(e)e.value=val; const o=document.getElementById(out); };
+  document.getElementById("c-fov").value=P.fovDeg;     document.getElementById("o-fov").textContent=P.fovDeg.toFixed(0)+"°";
+  document.getElementById("c-speed").value=P.speedScale; document.getElementById("o-speed").textContent=P.speedScale.toFixed(2)+"×";
+  document.getElementById("c-alt").value=P.altOffsetM; document.getElementById("o-alt").textContent=(P.altOffsetM>=0?"+":"")+P.altOffsetM;
+  document.getElementById("c-wave").value=P.waveScale; document.getElementById("o-wave").textContent=P.waveScale.toFixed(2)+"×";
+  document.getElementById("c-lambda").value=P.lambdaScale; document.getElementById("o-lambda").textContent=P.lambdaScale.toFixed(2)+"×";
+  document.getElementById("c-relief").value=P.reliefScale; document.getElementById("o-relief").textContent=P.reliefScale.toFixed(2)+"×";
+  document.getElementById("c-sun").value=P.sunElevDeg; document.getElementById("o-sun").textContent=P.sunElevDeg.toFixed(0)+"°";
+  document.getElementById("c-vis").value=(P.visM/1000); document.getElementById("o-vis").textContent=(P.visM/1000).toFixed(1);
+  document.getElementById("btn-units").textContent="Units: "+(displayImperial?"Imperial":"Metric");
+}
+
+function wireControls(){
+  const on=(id,fn)=>document.getElementById(id).addEventListener("input",e=>{ fn(parseFloat(e.target.value)); });
+  on("c-fov", v=>{ P.fovDeg=clamp(v,FOV_MIN,FOV_MAX); document.getElementById("o-fov").textContent=P.fovDeg.toFixed(0)+"°"; });
+  on("c-speed", v=>{ P.speedScale=v; document.getElementById("o-speed").textContent=v.toFixed(2)+"×"; });
+  on("c-alt", v=>{ P.altOffsetM=v; document.getElementById("o-alt").textContent=(v>=0?"+":"")+v; });
+  on("c-wave", v=>{ P.waveScale=v; document.getElementById("o-wave").textContent=v.toFixed(2)+"×"; });
+  on("c-lambda", v=>{ P.lambdaScale=v; document.getElementById("o-lambda").textContent=v.toFixed(2)+"×"; });
+  on("c-relief", v=>{ P.reliefScale=v; document.getElementById("o-relief").textContent=v.toFixed(2)+"×"; rebuildStatic(ENGINE.scene,P); });
+  on("c-sun", v=>{ P.sunElevDeg=v; ENGINE.scene.atmosphere.sun.elevationDeg=v; document.getElementById("o-sun").textContent=v.toFixed(0)+"°"; });
+  on("c-vis", v=>{ P.visM=v*1000; document.getElementById("o-vis").textContent=v.toFixed(1); });
+
+  document.getElementById("btn-pause").addEventListener("click",e=>{ paused=!paused; e.target.classList.toggle("active",paused); e.target.textContent=paused?"▶ Play":"⏸ Pause"; });
+  document.getElementById("btn-reset").addEventListener("click",()=>{ resetFlight(); });
+  document.getElementById("btn-units").addEventListener("click",()=>{ displayImperial=!displayImperial; syncControls(); });
+  const fovBtn=(id,val)=>document.getElementById(id).addEventListener("click",()=>{ P.fovDeg=val; syncControls(); });
+  fovBtn("btn-fov70",70); fovBtn("btn-fov120",120); fovBtn("btn-fov140",140);
+  document.getElementById("btn-scene-harbor").addEventListener("click",()=>switchScene("harbor"));
+  document.getElementById("btn-scene-canyon").addEventListener("click",()=>switchScene("canyon"));
+  attachLookDrag(document.getElementById("cam-panel"));
+}
+function switchScene(key){
+  loadScene(SCENES[key]());
+  applySceneDefaults(ENGINE.scene);
+  simT=0; look={yaw:0,pitch:0,roll:0}; lastReal=null;
+  document.getElementById("btn-scene-harbor").classList.toggle("active",key==="harbor");
+  document.getElementById("btn-scene-canyon").classList.toggle("active",key==="canyon");
+  updateFoot();
+}
+function updateFoot(){
+  document.getElementById("foot").innerHTML =
+    "Scene: <b>"+ENGINE.scene.meta.name+"</b> · geometry-native (no screen-space layers) · "+
+    "SVG painter's-algorithm occlusion · world-anchored Gerstner sea · quaternion 6-DOF camera. "+
+    "Append <b>?selftest=1</b> to the URL to run the in-file assert harness (projection · quat · Gerstner · flow-FOE · occlusion · perf).";
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  MAIN LOOP  (SPEC §5.10).  Persistent rAF; dt clamped; t drives everything →
+//  Reset is exact. Built fresh (NOT the lineage's one-shot morph tween).
+//───────────────────────────────────────────────────────────────────────────────
+let fps=0, frameTimes=[];
+function loop(nowMs){
+  const now=nowMs/1000;
+  if(lastReal===null) lastReal=now;
+  let dt=now-lastReal; lastReal=now;
+  dt=Math.min(DT_CLAMP, Math.max(0, dt));
+  if(!paused) simT+=dt;
+  if(simT>ENGINE.driver.tEnd()) simT=ENGINE.driver.tEnd();   // hold at path end (loop:false)
+
+  const CAM=ENGINE.driver.update(simT, P, lookQuat());
+  renderFrame(CAM);
+  updateHUD(CAM);
+
+  // fps (median of recent frames)
+  if(dt>0){ frameTimes.push(dt); if(frameTimes.length>30) frameTimes.shift();
+    const s=[...frameTimes].sort((a,b)=>a-b); fps=1/s[s.length>>1]; }
+  rafId=requestAnimationFrame(loop);
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  SELF-TEST HARNESS  (SPEC §8).  ?selftest=1 → assert pass/fail + perf probe.
+//───────────────────────────────────────────────────────────────────────────────
+function runSelfTests(){
+  const R=[]; let pass=0,fail=0;
+  const ok=(n,c,x)=>{ if(c){pass++;} else {fail++; R.push("✗ "+n+(x!==undefined?"  ["+x+"]":""));} };
+  const approx=(a,b,e)=>Math.abs(a-b)<=(e||1e-6);
+
+  // projection
+  {
+    const CAM={pos:[0,0,0],attitude:Q.ident(),fovDeg:70,nearM:0.5};
+    const ctx=buildContextLite(CAM);
+    const a=RectilinearProjection.project([0,10,0],ctx);
+    ok("project ahead→centre", a&&approx(a.u,640,1e-3)&&approx(a.v,360,1e-3), a&&(a.u.toFixed(2)+","+a.v.toFixed(2)));
+    ok("project right→u>centre", RectilinearProjection.project([1,10,0],ctx).u>640);
+    ok("project up→v<centre", RectilinearProjection.project([0,10,1],ctx).v<360);
+    ok("near-clip rejects Yc≤near", RectilinearProjection.project([0,0.4,0],ctx)===null);
+  }
+  // quat / mat3
+  {
+    const q=eulerToQuat(0.7,-0.3,0.4);
+    const v=[0.3,0.8,-0.5];
+    const a=Q.rot(q,v), b=M3.mulVec(M3.fromQuat(q),v);
+    ok("mat3FromQuat == Q.rot", approx(a[0],b[0])&&approx(a[1],b[1])&&approx(a[2],b[2]));
+    let d=Q.ident(); for(let i=0;i<10000;i++) d=Q.norm(Q.mul(d,Q.fromAxisAngle([0.3,0.5,0.81],0.01)));
+    ok("quat no drift over 1e4", approx(Math.hypot(d[0],d[1],d[2],d[3]),1,1e-9));
+    const fwd=Q.rot(eulerToQuat(0,0,0),[0,1,0]);
+    ok("identity forward=+Y", approx(fwd[1],1));
+  }
+  // Gerstner periodicity + Jacobian sign
+  {
+    const s=makeGerstner([{lambdaM:20,amplitudeM:1,dirDeg:0,steepness:0.8,phase:0}],{waveScale:1,lambdaScale:1});
+    ok("Gerstner periodic over λ", approx(s(0,0,0).p[2], s(20,0,0).p[2],1e-9));
+    let mlo=Infinity,mhi=Infinity;
+    const slo=makeGerstner([{lambdaM:20,amplitudeM:1,dirDeg:0,steepness:0.2,phase:0}],{waveScale:1,lambdaScale:1});
+    const shi=makeGerstner([{lambdaM:20,amplitudeM:1,dirDeg:0,steepness:0.98,phase:0}],{waveScale:1,lambdaScale:1});
+    for(let x=0;x<20;x+=0.25){ mlo=Math.min(mlo,slo(x,0,0).detJ); mhi=Math.min(mhi,shi(x,0,0).detJ); }
+    ok("steeper waves → lower detJ (foam pinch)", mhi<mlo, mhi.toFixed(2)+"<"+mlo.toFixed(2));
+  }
+  // haze lerp + sort
+  {
+    const c=V.lerp([0,0,0],[100,100,100], 1-Math.exp(-8000/8000));
+    ok("haze at d=vis ≈ 63%", approx(c[0],63.2,0.5), c[0].toFixed(1));
+    const arr=[{depth:5},{depth:1},{depth:9},{depth:3}]; arr.sort((a,b)=>b.depth-a.depth);
+    ok("painter sort far-first", arr[0].depth===9&&arr[3].depth===1);
+  }
+  // ANALYTIC FLOW / FOE — the hypothesis test (PRD success metric #1, SPEC §8)
+  {
+    const scene=harborCity(); scene.atmosphere.__hazeC=scene.atmosphere.haze.color; scene.ground.__hazeC=scene.atmosphere.haze.color;
+    const s=makeGerstner(scene.ground.waves,{waveScale:1,lambdaScale:1});
+    const att=headingQuat([0,1,0],0);
+    const mk=(pos)=>({R:M3.fromQuat(Q.conj(att)),pos,f:(VIEW_W/2)/Math.tan(90*DEG/2),panelW:VIEW_W,panelH:VIEW_H,nearM:0.5});
+    const c0=mk([0,0,40]), c1=mk([0,5,40]);    // 5 m forward
+    const samples=[];
+    for(let gx=-200;gx<=200;gx+=20)for(let gy=60;gy<=420;gy+=20){
+      const gp=s(gx,gy,2.0).p; const a=RectilinearProjection.project(gp,c0), b=RectilinearProjection.project(gp,c1);
+      if(a&&b) samples.push({a,b,depth:a.depth});
+    }
+    const FOE={u:VIEW_W/2,v:VIEW_H/2};
+    let good=0,tot=0;
+    for(const sm of samples){
+      const rx=sm.a.u-FOE.u, ry=sm.a.v-FOE.v, dx=sm.b.u-sm.a.u, dy=sm.b.v-sm.a.v;
+      const rl=Math.hypot(rx,ry), dl=Math.hypot(dx,dy); if(rl<10||dl<1e-3) continue;
+      tot++; if((rx*dx+ry*dy)/(rl*dl)>0.9) good++;
+    }
+    ok("flow radiates from FOE (>92%)", good/tot>0.92, (100*good/tot).toFixed(1)+"%");
+    const near=samples.filter(s=>s.depth<120), far=samples.filter(s=>s.depth>260);
+    const mag=a=>a.reduce((m,s)=>m+Math.hypot(s.b.u-s.a.u,s.b.v-s.a.v),0)/a.length;
+    ok("flow depth-stratified (near≫far)", mag(near)>mag(far)*2.5, mag(near).toFixed(1)+" vs "+mag(far).toFixed(1));
+  }
+  // OCCLUSION — near solid overdraws far solid (SPEC §8)
+  {
+    const far={depth:200}, near={depth:20}; const order=[far,near].sort((a,b)=>b.depth-a.depth);
+    ok("occlusion: far emitted before near", order[0]===far&&order[1]===near);
+  }
+  // PERF PROBE — median frame time over a fixed segment at target resolution (SPEC §8/§9)
+  let perfMs=0, perfOk=true;
+  {
+    const saveT=simT; const times=[];
+    loadScene(harborCity());
+    for(let i=0;i<24;i++){
+      simT=10 + i*0.7;
+      const CAM=ENGINE.driver.update(simT,P,Q.ident());
+      const t0=performance.now(); renderFrame(CAM); times.push(performance.now()-t0);
+    }
+    times.sort((a,b)=>a-b); perfMs=times[times.length>>1];
+    perfOk = perfMs < 33.3;   // ≥30 FPS floor (SPEC §9)
+    ok("perf median frame < 33ms (30fps floor)", perfOk, perfMs.toFixed(1)+"ms ("+(1000/perfMs).toFixed(0)+"fps), "+lastEmitCount+" el");
+    simT=saveT;
+  }
+
+  const badge=document.getElementById("selftest-badge");
+  badge.style.display="block";
+  badge.style.borderColor = fail===0 ? "#7bbf6a" : "#c95a5a";
+  badge.textContent = (fail===0?"✓ ALL SELF-TESTS PASS":"✗ "+fail+" FAILED")+"  ("+pass+"/"+(pass+fail)+")\n"+
+    "perf: "+perfMs.toFixed(1)+" ms/frame · "+(1000/perfMs).toFixed(0)+" fps · "+lastEmitCount+" elements\n"+
+    (R.length? R.join("\n")+"\n":"")+
+    "console.table for detail";
+  console.log("%cFOV-FLIGHT self-tests: "+pass+" passed, "+fail+" failed", "font-weight:bold");
+  if(R.length) console.warn(R.join("\n"));
+}
+function buildContextLite(CAM){
+  const f=(VIEW_W/2)/Math.tan(CAM.fovDeg*DEG/2);
+  return { R:M3.fromQuat(Q.conj(CAM.attitude)), pos:CAM.pos, f, panelW:VIEW_W, panelH:VIEW_H, nearM:CAM.nearM };
+}
+
+//───────────────────────────────────────────────────────────────────────────────
+//  INIT
+//───────────────────────────────────────────────────────────────────────────────
+(function init(){
+  const params=new URLSearchParams(location.search);
+  const sceneKey = SCENES[params.get("scene")] ? params.get("scene") : "harbor";
+  loadScene(SCENES[sceneKey]());
+  applySceneDefaults(ENGINE.scene);
+  wireControls();
+  document.getElementById("btn-scene-"+sceneKey).classList.add("active");
+  updateFoot();
+  // Optional deep-link seek (handy for sharing a moment / headless capture):
+  //   ?t=SEC freeze at a flight time · ?ly=DEG ?lp=DEG look offset · ?fov=DEG
+  const t0=parseFloat(params.get("t")); if(!isNaN(t0)){ simT=Math.max(0,t0); paused=true;
+    document.getElementById("btn-pause").classList.add("active"); document.getElementById("btn-pause").textContent="▶ Play"; }
+  const ly=parseFloat(params.get("ly")); if(!isNaN(ly)) look.yaw=ly*DEG;
+  const lp=parseFloat(params.get("lp")); if(!isNaN(lp)) look.pitch=lp*DEG;
+  const fv=parseFloat(params.get("fov")); if(!isNaN(fv)){ P.fovDeg=clamp(fv,FOV_MIN,FOV_MAX); syncControls(); }
+  if(params.get("selftest")==="1"){ try{ runSelfTests(); }catch(e){ console.error("selftest error",e); } }
+  rafId=requestAnimationFrame(loop);
+})();
+</script>
+<style>
+  /* Flat-illustration style (reference: stylized 2.5D drone flythrough). The sea is
+     flat color regions graded by depth — NO wireframe grid. Solids are flat/toon-shaded
+     silhouettes with clean edges. Emissive accents bloom via the #glow layer's filter. */
+  /* ground/solid fills carry a hairline stroke equal to their own fill (set inline) to
+     seal sub-pixel AA seams between abutting flat polygons → smooth, gridless surfaces. */
+  #world path.sea0, #world path.sea1, #world path.sea2, #world path.sea3,
+  #world path.far, #world path.land, #world path.rock, #world path.foliage { stroke-width:0.9; vector-effect:non-scaling-stroke; }
+  #world path.bldg { stroke:rgba(8,10,20,0.35); stroke-width:0.5; vector-effect:non-scaling-stroke; }
+  /* subtle drawn water highlights (sparse warm crest lines), not a technical grid */
+  #world path.crest { stroke-width:1.4; stroke-opacity:0.5; vector-effect:non-scaling-stroke; stroke-linecap:round; }
+  #world path.win    { stroke:none; }
+  #glow  path, #glow rect, #glow circle { stroke:none; }
+</style>
+</body>
+</html>

@@ -1,0 +1,2723 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Room studio — node-based room generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,300;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500&display=swap"/>
+<style>
+  :root {
+    --bg:        #0a1018;
+    --panel:     #04080f;
+    --line:      #d4c08c;
+    --line-dim:  rgba(212, 192, 140, 0.55);
+    --line-faint:rgba(212, 192, 140, 0.22);
+    --accent:    #c97a5a;
+    --accent-dim:rgba(201, 122, 90, 0.5);
+    --accent-glow: rgba(201, 122, 90, 0.18);
+    --frame:     #1a2230;
+    --frame-soft: #0e1623;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--line);
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    -webkit-font-smoothing: antialiased;
+  }
+  wrap {
+    display: block;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 44px 24px 64px;
+  }
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 300;
+    font-size: clamp(26px, 3.6vw, 40px);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    margin: 0 0 14px;
+    color: var(--line);
+  }
+  p.body {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(14px, 1.3vw, 16px);
+    line-height: 1.55;
+    color: rgba(212, 192, 140, 0.78);
+    margin: 0 0 24px;
+    max-width: 78ch;
+  }
+  panel-title {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: rgba(212, 192, 140, 0.55);
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+
+  /* ─── studio layout ─── */
+  studio-grid {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.15fr);
+    gap: 22px;
+    align-items: start;
+    margin: 6px 0 22px;
+  }
+  @media (max-width: 880px) {
+    studio-grid { grid-template-columns: 1fr; }
+  }
+  editor-cell, view-cell {
+    display: block;
+    min-width: 0;
+  }
+  view-cell > * + * { margin-top: 18px; }
+
+  /* ─── camera panel (preserved) ─── */
+  camera-panel {
+    display: block;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 5 / 3;
+    background: var(--panel);
+    border: 1px solid var(--frame);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+  }
+  camera-panel:active { cursor: grabbing; }
+  camera-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse 70% 80% at center, transparent 40%, rgba(0,0,0,0.55) 100%);
+  }
+  cam-svg { display: block; width: 100%; height: 100%; }
+  bearing {
+    position: absolute;
+    top: 12px;
+    left: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    z-index: 2;
+    pointer-events: none;
+  }
+  formula {
+    position: absolute;
+    bottom: 12px;
+    right: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: rgba(212, 192, 140, 0.45);
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  /* ─── strip panel (equirect, preserved) ─── */
+  strip-panel {
+    display: block;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    background: var(--panel);
+    border: 1px solid var(--frame);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+  }
+  strip-panel formula {
+    position: absolute;
+    bottom: 6px;
+    right: 10px;
+    z-index: 3;
+    font-size: 9.5px;
+  }
+  strip-panel:active { cursor: grabbing; }
+  seam-labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+  }
+  seam-labels span {
+    position: absolute;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: rgba(212, 192, 140, 0.5);
+    white-space: nowrap;
+  }
+  seam-labels span.left   { left: 0;   top: 50%; transform: translate(8px, -50%); }
+  seam-labels span.right  { left: 100%; top: 50%; transform: translateX(-100%) translateX(-8px) translateY(-50%); }
+  seam-labels span.fwd    { left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: 0.5; }
+  seam-labels span.above  { left: 50%; top: 6px; transform: translateX(-50%); }
+  seam-labels span.below  { left: 50%; bottom: 6px; transform: translateX(-50%); }
+
+  plate-svg { display: block; width: 100%; height: 100%; }
+  .plate-strokes path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.1;
+    opacity: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .plate-strokes path.heavy { stroke-width: 1.6; }
+  .plate-strokes path.faint { stroke-width: 0.7; opacity: 0.55; }
+  .plate-strokes path.accent-line { stroke: var(--accent); stroke-width: 1.5; }
+
+  /* ─── highlight overlay ─── */
+  .highlight {
+    position: absolute;
+    background: rgba(201, 122, 90, 0.08);
+    border: 1px solid var(--accent);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* ─── camera SVG line styles (preserved) ─── */
+  #cam-scene line {
+    stroke: var(--line);
+    stroke-width: 1.1;
+    fill: none;
+    stroke-linecap: round;
+  }
+  #cam-scene line.heavy { stroke-width: 1.6; }
+  #cam-scene line.faint { stroke-width: 0.7; opacity: 0.55; }
+  #cam-scene line.accent-line { stroke: var(--accent); stroke-width: 1.5; }
+  .horizon {
+    stroke: var(--line);
+    stroke-width: 1;
+    stroke-dasharray: 4 6;
+    opacity: 0.22;
+    fill: none;
+  }
+  .crosshair {
+    stroke: var(--line);
+    stroke-width: 1;
+    opacity: 0.4;
+    fill: none;
+  }
+
+  /* ─── node editor ─── */
+  node-editor {
+    display: block;
+    position: relative;
+    width: 100%;
+    aspect-ratio: 5 / 4;
+    background: var(--panel);
+    border: 1px solid var(--frame);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none;
+  }
+  node-editor svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .ed-grid line {
+    stroke: var(--line-faint);
+    stroke-width: 0.4;
+    vector-effect: non-scaling-stroke;
+  }
+  .ed-grid line.axis {
+    stroke: rgba(212, 192, 140, 0.32);
+    stroke-width: 0.6;
+    vector-effect: non-scaling-stroke;
+  }
+  .ed-edge {
+    stroke: var(--line);
+    stroke-width: 1.2;
+    fill: none;
+    vector-effect: non-scaling-stroke;
+  }
+  .ed-fill {
+    fill: rgba(212, 192, 140, 0.04);
+    stroke: none;
+  }
+  .ed-subdiv {
+    stroke: var(--line-faint);
+    stroke-width: 0.6;
+    fill: none;
+    vector-effect: non-scaling-stroke;
+    stroke-dasharray: 2 2.5;
+  }
+  .ed-camera {
+    fill: var(--accent);
+    stroke: rgba(201, 122, 90, 0.35);
+    stroke-width: 4;
+    paint-order: stroke;
+  }
+  .ed-camera-ring {
+    fill: none;
+    stroke: var(--accent-dim);
+    stroke-width: 0.5;
+    vector-effect: non-scaling-stroke;
+    stroke-dasharray: 2 3;
+    transition: stroke 0.15s, opacity 0.15s;
+  }
+  .ed-camera-ring.active { stroke: var(--accent); opacity: 1; }
+  /* Transparent, generous grab target sitting over the camera dot. The
+     visible dot + ring carry the look; this circle carries the pointer.
+     pointer-events:all so a fully-transparent fill is still hit-tested
+     (visiblePainted skips zero-alpha fills in some engines, which let the
+     click fall through to the room's interior fill — the original bug). */
+  .ed-cam-hit {
+    fill: transparent;
+    pointer-events: all;
+    cursor: grab;
+  }
+  .ed-cam-hit:active { cursor: grabbing; }
+  #ed-camera-layer:hover .ed-camera-ring { stroke: var(--accent); opacity: 1; }
+  .ed-node {
+    fill: var(--bg);
+    stroke: var(--accent);
+    stroke-width: 1.6;
+    vector-effect: non-scaling-stroke;
+    cursor: grab;
+    transition: fill 0.15s, r 0.15s;
+  }
+  .ed-node:hover { fill: var(--accent); }
+  .ed-node.dragging { fill: var(--accent); cursor: grabbing; }
+  .ed-node.locked { cursor: default; opacity: 0.5; }
+  .ed-insert {
+    fill: var(--frame);
+    stroke: rgba(212, 192, 140, 0.4);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    cursor: copy;
+    opacity: 0;
+    transition: opacity 0.18s, fill 0.18s;
+  }
+  node-editor:hover .ed-insert { opacity: 1; }
+  .ed-insert:hover { fill: var(--accent); }
+  .ed-insert-glyph {
+    fill: var(--line-dim);
+    pointer-events: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 8px;
+    font-weight: 500;
+  }
+  .ed-label {
+    fill: rgba(212, 192, 140, 0.5);
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 7px;
+    letter-spacing: 0.1em;
+    pointer-events: none;
+  }
+  .ed-banner {
+    fill: rgba(201, 122, 90, 0.9);
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 7px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  editor-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    color: rgba(212, 192, 140, 0.42);
+    pointer-events: none;
+    z-index: 2;
+  }
+  editor-corner {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    color: var(--accent);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* ─── camera-depth panel (the second movement node: Y / corridor) ─── */
+  camera-depth {
+    display: block;
+    margin-top: 18px;
+    padding: 14px 16px 12px;
+    border: 1px solid var(--frame);
+    background: var(--frame-soft);
+  }
+  cam-depth-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  cam-depth-head panel-title { margin: 0; }
+  cam-readout {
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  depth-track {
+    position: relative;
+    display: block;
+    height: 30px;
+    margin: 0 7px;
+    touch-action: none;
+    cursor: pointer;
+  }
+  depth-line {
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 1px;
+    background: rgba(212, 192, 140, 0.3);
+    transform: translateY(-50%);
+  }
+  depth-center {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 1px; height: 11px;
+    background: rgba(212, 192, 140, 0.42);
+    transform: translate(-50%, -50%);
+  }
+  depth-fill {
+    position: absolute;
+    top: 50%;
+    height: 1px;
+    background: var(--accent-dim);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  depth-node {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-glow);
+    transform: translate(-50%, -50%);
+    cursor: grab;
+    touch-action: none;
+  }
+  depth-node:active { cursor: grabbing; }
+  depth-scale {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    color: rgba(212, 192, 140, 0.5);
+  }
+  depth-scale .depth-axis {
+    color: rgba(212, 192, 140, 0.4);
+    letter-spacing: 0.2em;
+  }
+  axis-rail { display: block; }
+  axis-rail + axis-rail { margin-top: 16px; }
+  camera-depth tools-row { margin-top: 16px; }
+
+  /* ─── controls ─── */
+  controls-block {
+    display: block;
+    margin-top: 18px;
+    padding: 16px 16px 14px;
+    border: 1px solid var(--frame);
+    background: var(--frame-soft);
+  }
+  controls-row {
+    display: grid;
+    grid-template-columns: 100px 1fr 42px;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 0;
+  }
+  controls-row + controls-row { border-top: 1px solid rgba(26, 34, 48, 0.6); }
+  controls-row label {
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 9.5px;
+    letter-spacing: 0.18em;
+    color: rgba(212, 192, 140, 0.62);
+    text-transform: uppercase;
+  }
+  controls-row output {
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 11px;
+    color: var(--accent);
+    text-align: right;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    width: 100%;
+    margin: 0;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 1px;
+    background: rgba(212, 192, 140, 0.3);
+    border: none;
+  }
+  input[type="range"]::-moz-range-track {
+    height: 1px;
+    background: rgba(212, 192, 140, 0.3);
+    border: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 1.5px solid var(--accent);
+    margin-top: -5.5px;
+    cursor: grab;
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+  input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 1.5px solid var(--accent);
+    cursor: grab;
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+
+  /* ─── presets ─── */
+  presets-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 28px 0 0;
+    padding: 0;
+  }
+  preset-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px 9px 12px;
+    border: 1px solid var(--frame);
+    background: var(--frame-soft);
+    color: rgba(212, 192, 140, 0.85);
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    user-select: none;
+  }
+  preset-btn:hover {
+    color: var(--line);
+    border-color: var(--accent-dim);
+    background: rgba(201, 122, 90, 0.06);
+  }
+  preset-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(201, 122, 90, 0.08);
+  }
+  preset-btn svg {
+    display: block;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+  preset-btn svg .icon-line {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+  }
+
+  presets-label {
+    display: block;
+    margin: 22px 0 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: rgba(212, 192, 140, 0.5);
+    text-transform: uppercase;
+  }
+
+  /* ─── small tools ─── */
+  tools-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  tool-btn {
+    flex: 1;
+    padding: 7px 10px;
+    border: 1px solid var(--frame);
+    background: transparent;
+    color: rgba(212, 192, 140, 0.7);
+    font-family: 'JetBrains Mono', monospace;
+    font-style: normal;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+    text-align: center;
+  }
+  tool-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent-dim);
+  }
+  tool-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  tool-btn:disabled:hover {
+    color: rgba(212, 192, 140, 0.7);
+    border-color: var(--frame);
+  }
+</style>
+</head>
+<body>
+<wrap>
+  <h1>Room studio — every line is a node</h1>
+  <p class="body">A room is just a closed cross-section dragged the length of a corridor. Edit the silhouette on the left — drag the nodes, add new ones on the edges, double-tap to remove — and the camera sees the room rebuild itself in real time. The presets sweep every node from where it is to where the next shape wants it.</p>
+
+  <studio-grid>
+    <editor-cell>
+      <panel-title>Cross-section · drag nodes · click edge midpoints to insert</panel-title>
+      <node-editor id="editor-panel">
+        <svg id="editor-svg" viewBox="-15 -12 30 24" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+          <g class="ed-grid" id="ed-grid"></g>
+          <g id="ed-subdiv-layer"></g>
+          <path class="ed-fill" id="ed-fill" d=""/>
+          <path class="ed-edge" id="ed-edge" d=""/>
+          <g id="ed-inserts"></g>
+          <g id="ed-camera-layer"></g>
+          <g id="ed-nodes"></g>
+          <g id="ed-labels"></g>
+        </svg>
+        <editor-corner id="editor-corner">·</editor-corner>
+        <editor-hint>X HORIZONTAL · Z VERTICAL · ⊙ DRAG CAMERA</editor-hint>
+      </node-editor>
+
+      <camera-depth id="cam-depth">
+        <cam-depth-head>
+          <panel-title>Camera · drag the eye through the room</panel-title>
+          <cam-readout id="cam-readout">x +0.0 · y +0.0 · z +0.0</cam-readout>
+        </cam-depth-head>
+        <axis-rail>
+          <depth-track id="track-x">
+            <depth-line></depth-line>
+            <depth-center></depth-center>
+            <depth-fill id="fill-x"></depth-fill>
+            <depth-node id="node-x"></depth-node>
+          </depth-track>
+          <depth-scale>
+            <span id="min-x">&minus;5</span>
+            <span class="depth-axis">X · HORIZONTAL</span>
+            <span id="max-x">+5</span>
+          </depth-scale>
+        </axis-rail>
+
+        <axis-rail>
+          <depth-track id="track-z">
+            <depth-line></depth-line>
+            <depth-center></depth-center>
+            <depth-fill id="fill-z"></depth-fill>
+            <depth-node id="node-z"></depth-node>
+          </depth-track>
+          <depth-scale>
+            <span id="min-z">&minus;5</span>
+            <span class="depth-axis">Z · VERTICAL</span>
+            <span id="max-z">+5</span>
+          </depth-scale>
+        </axis-rail>
+
+        <axis-rail>
+          <depth-track id="track-y">
+            <depth-line></depth-line>
+            <depth-center></depth-center>
+            <depth-fill id="fill-y"></depth-fill>
+            <depth-node id="node-y"></depth-node>
+          </depth-track>
+          <depth-scale>
+            <span id="min-y">&minus;30</span>
+            <span class="depth-axis">Y · DEPTH</span>
+            <span id="max-y">+30</span>
+          </depth-scale>
+        </axis-rail>
+
+        <tools-row>
+          <tool-btn id="tool-recenter">Recenter Camera</tool-btn>
+        </tools-row>
+      </camera-depth>
+
+      <controls-block>
+        <controls-row>
+          <label>Width</label>
+          <input type="range" id="ctrl-width" min="2" max="400" step="0.5" value="8"/>
+          <output id="out-width">8</output>
+        </controls-row>
+        <controls-row>
+          <label>Height</label>
+          <input type="range" id="ctrl-height" min="2" max="320" step="0.5" value="4"/>
+          <output id="out-height">4</output>
+        </controls-row>
+        <controls-row>
+          <label>Length</label>
+          <input type="range" id="ctrl-length" min="6" max="600" step="0.5" value="60"/>
+          <output id="out-length">60</output>
+        </controls-row>
+        <controls-row>
+          <label>Wall Subdiv</label>
+          <input type="range" id="ctrl-subdiv" min="1" max="80" step="1" value="3"/>
+          <output id="out-subdiv">3</output>
+        </controls-row>
+        <controls-row>
+          <label>End Caps</label>
+          <input type="range" id="ctrl-caps" min="0" max="3" step="1" value="3"/>
+          <output id="out-caps">waffle</output>
+        </controls-row>
+
+        <tools-row>
+          <tool-btn id="tool-reset">Reset Cross-section</tool-btn>
+          <tool-btn id="tool-rotate">Rotate Nodes</tool-btn>
+        </tools-row>
+      </controls-block>
+    </editor-cell>
+
+    <view-cell>
+      <div>
+        <panel-title>Inside the room · drag to look around</panel-title>
+        <camera-panel id="cam-panel">
+          <bearing id="bearing-label">+0° — FACING FORWARD</bearing>
+          <svg id="cam-svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+            <line class="horizon" x1="0" y1="300" x2="1000" y2="300"/>
+            <g id="cam-scene"></g>
+            <g class="crosshair">
+              <line x1="488" y1="300" x2="512" y2="300"/>
+              <line x1="500" y1="288" x2="500" y2="312"/>
+              <circle cx="500" cy="300" r="6" fill="none"/>
+            </g>
+          </svg>
+          <formula>u = f·x/y &nbsp;&nbsp; v = f·z/y &nbsp;&nbsp;&nbsp; (rectilinear)</formula>
+        </camera-panel>
+      </div>
+
+      <div>
+        <panel-title>Stitched plate · the full sphere unrolled</panel-title>
+        <strip-panel id="strip-panel">
+          <seam-labels>
+            <span class="left">−180° · BEHIND</span>
+            <span class="fwd">0° · FORWARD</span>
+            <span class="right">+180° · BEHIND</span>
+            <span class="above">+90° · ABOVE</span>
+            <span class="below">−90° · BELOW</span>
+          </seam-labels>
+          <svg id="plate-svg" viewBox="0 0 11200 5600" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+            <g id="plate-content" class="plate-strokes"></g>
+          </svg>
+          <div class="highlight" id="hl-primary"></div>
+          <div class="highlight" id="hl-wrap" style="display:none"></div>
+          <formula>u = f·θ &nbsp;&nbsp; v = f·φ &nbsp;&nbsp;&nbsp; (equirectangular)</formula>
+        </strip-panel>
+      </div>
+    </view-cell>
+  </studio-grid>
+
+  <presets-label>Presets · the polygon morphs all nodes at once</presets-label>
+  <presets-bar id="presets-bar"></presets-bar>
+</wrap>
+
+<script>
+"use strict";
+
+//──────────────────────────────────────────────────────────────────
+// Camera-rendering constants (unchanged from original)
+//──────────────────────────────────────────────────────────────────
+const CAM_VIEW_W = 1000;
+const CAM_VIEW_H =  600;
+const CAM_FOV    = 70 * Math.PI / 180;
+const f_persp    = (CAM_VIEW_W / 2) / Math.tan(CAM_FOV / 2);
+const CAM_VFOV   = 2 * Math.atan((CAM_VIEW_H / 2) / f_persp);
+const PHI_MAX    = 85 * Math.PI / 180;
+const NEAR       = 0.4;
+
+const PANO_W     = 11200;
+const PANO_H     = 5600;
+const f_cyl      = PANO_W / (2 * Math.PI);
+const cx_pano    = PANO_W / 2;
+const cy_pano    = PANO_H / 2;
+
+const CENTER_GAP = 0.001;       // sub-pixel split to dodge pole singularity
+
+//──────────────────────────────────────────────────────────────────
+// Room state — the cross-section IS the room
+//──────────────────────────────────────────────────────────────────
+// vertices: [{x, z}, ...] in counter-clockwise order (XZ plane).
+//           +x is right, +z is up. Camera lives at origin (0,0,0).
+// length:   total Y extent of the corridor (room runs −L/2 to +L/2).
+// beams:    number of crossbeam rings stamped along Y.
+// subdiv:   longitudinal lines per wall edge (the "between-corner" lines).
+// caps:     end-wall style — 0 = none, 1 = flat, 2 = domed (half-dome bulge),
+//                              3 = waffle (flat cap with grid lines).
+// shape:    'corridor' (cross-section extruded along Y) or 'hemisphere'
+//           (cross-section's bbox defines a half-sphere with a flat floor).
+//──────────────────────────────────────────────────────────────────
+const room = {
+  vertices: [
+    { x: -4, z: -1.5 },
+    { x:  4, z: -1.5 },
+    { x:  4, z:  2.5 },
+    { x: -4, z:  2.5 },
+  ],
+  length: 60,
+  beams: 14,
+  subdiv: 3,
+  caps: 3,
+  shape: 'corridor',
+};
+
+const CAPS_LABELS = ['off', 'flat', 'dome', 'waffle'];
+
+let sceneLines = [];
+
+//──────────────────────────────────────────────────────────────────
+// polygonGridCrossings — where does a vertical or horizontal grid
+// line intersect the polygon boundary? Returns intersection points
+// sorted by the perpendicular axis (z for vertical lines, x for
+// horizontal). Used by the subdivision pass and the waffle end cap.
+//
+// Edge cases handled:
+//   • A grid line that grazes a vertex is treated as crossing exactly
+//     once at that vertex (rather than 0 or 2 times), by checking the
+//     strict-cross signed product first and falling back to the
+//     vertex-touch case only when one endpoint sits exactly on the line.
+//   • Edges entirely on the grid line are skipped (their endpoints get
+//     picked up by adjacent edges).
+//──────────────────────────────────────────────────────────────────
+function polygonGridCrossings(vertices, axis, val) {
+  const pts = [];
+  const N = vertices.length;
+  const EPS = 1e-9;
+  for (let i = 0; i < N; i++) {
+    const a = vertices[i], b = vertices[(i + 1) % N];
+    if (axis === 'x') {
+      const da = a.x - val, db = b.x - val;
+      if (da * db < -EPS) {
+        const t = da / (da - db);
+        pts.push({ x: val, z: a.z + t * (b.z - a.z) });
+      } else if (Math.abs(db) < EPS && Math.abs(da) > EPS) {
+        // Endpoint b sits exactly on the grid line — count once here,
+        // skip on the next iteration (where it'd be endpoint a).
+        pts.push({ x: val, z: b.z });
+      }
+    } else {
+      const da = a.z - val, db = b.z - val;
+      if (da * db < -EPS) {
+        const t = da / (da - db);
+        pts.push({ x: a.x + t * (b.x - a.x), z: val });
+      } else if (Math.abs(db) < EPS && Math.abs(da) > EPS) {
+        pts.push({ x: b.x, z: val });
+      }
+    }
+  }
+  // Sort by the perpendicular axis so non-convex polygons get their
+  // crossings paired up sensibly (0↔1, 2↔3, …) by the waffle cap.
+  if (axis === 'x') pts.sort((p, q) => p.z - q.z);
+  else              pts.sort((p, q) => p.x - q.x);
+  return pts;
+}
+
+//──────────────────────────────────────────────────────────────────
+// Scene generation
+//   Every line in the room descends from the cross-section.
+//   Walls share subdivisions automatically because the same vertex
+//   pattern is stamped at every Y — that's the whole trick.
+//──────────────────────────────────────────────────────────────────
+function generateScene(cs) {
+  const out = [];
+  const N   = cs.vertices.length;
+  if (N < 3) return out;
+
+  // ── Hemisphere mode — the room IS a half-sphere ────────────────
+  //     Bypass the corridor extrusion entirely. The cross-section
+  //     polygon is treated as a side-on silhouette of the dome — a
+  //     half-disk — and only its bounding box drives the 3D geometry:
+  //         R       = half the x-extent (the dome's radius)
+  //         floorZ  = the bbox's minimum z (where the flat floor sits)
+  //         cx      = the bbox's x center (lateral position)
+  //     The dome is rotationally symmetric around the vertical axis
+  //     passing through (cx, 0, floorZ), so the floor is a true disk
+  //     and the ceiling is a true hemispherical surface.
+  if (cs.shape === 'hemisphere') {
+    return generateHemisphere(cs);
+  }
+
+  const half = cs.length / 2;
+
+  // Find the accent edge — the bottom-most one (in -z), used for the
+  // floor centerline equivalent. It anchors the user's sense of "down."
+  let accentEdgeIdx = 0;
+  let minMidZ = Infinity;
+  for (let i = 0; i < N; i++) {
+    const a = cs.vertices[i], b = cs.vertices[(i + 1) % N];
+    const midZ = (a.z + b.z) / 2;
+    if (midZ < minMidZ) { minMidZ = midZ; accentEdgeIdx = i; }
+  }
+
+  // ── 1. Corner ridges — one long line per cross-section vertex ──
+  //     During a morph the polygon is in resampled form (MORPH_RES=64
+  //     vertices). Drawing a ridge at every one would paint 64 vertical
+  //     streaks on the walls mid-transition, far denser than any settled
+  //     preset (Tunnel tops out at 14). Subsample to keep the visual
+  //     line density consistent throughout the morph.
+  const ridgeStride = (N >= 32) ? Math.max(1, Math.floor(N / 12)) : 1;
+  for (let i = 0; i < N; i += ridgeStride) {
+    const v = cs.vertices[i];
+    out.push({ p1: [v.x, -half, v.z], p2: [v.x, half, v.z], cls: 'line heavy' });
+  }
+
+  // ── 2. Wall subdivisions — square-cell Cartesian grid ──
+  //     A grid is laid on the cross-section's bounding box and each
+  //     grid-line ∩ polygon-edge intersection becomes a longitudinal
+  //     beam. The grid is sized so cells are approximately SQUARE
+  //     regardless of room aspect ratio:
+  //         cellSize = longest_bbox_extent / SUB
+  //         xCells   = round(W / cellSize)
+  //         zCells   = round(H / cellSize)
+  //     Subdiv = N therefore means "approximately N cells along the
+  //     longer axis," with the shorter axis getting proportionally
+  //     fewer cells. An 8×4 hallway at SUB=3 gets 3 cells wide × 2
+  //     cells tall (vs. the old 3×3, which made each cell 2.67×1.33 —
+  //     visibly asymmetric on the walls). A 4×4 cube still gets 3×3.
+  //     A 10×2 coffin gets 3×1 (no horizontal grid lines on the very
+  //     short sides) instead of carpeting them.
+  //
+  //     Properties this design buys us:
+  //       • Opposing walls share subdivisions automatically (same grid
+  //         line crosses both).
+  //       • Cells are approximately square, so floor/ceiling beam
+  //         spacing matches side-wall beam spacing.
+  //       • Rounded shapes (octagon, tube, drum) get the same grid
+  //         applied to every edge uniformly.
+  //       • The waffle cap (caps === 3) reuses these grid arrays, so
+  //         end-cap and longitudinal patterns line up perfectly.
+  //
+  //     Skipped during a morph (N ≥ 32) — the resampled polygon's
+  //     curvy edges would cross every grid line many times.
+  //
+  // Subdiv now controls a CELL SIZE rather than a count per axis:
+  //     cellSize = REFERENCE_UNIT / SUB         (REFERENCE_UNIT = 8)
+  //     xCells   = round(W / cellSize)          (count adapts to room)
+  //     zCells   = round(H / cellSize)
+  //     B        = round(length / cellSize)     (same cellSize → matching spacing)
+  // This keeps every cell roughly the same physical size — on the
+  // floor, on the side walls, and along the corridor — so when you
+  // crank Width or Height up to 400, the room gets MORE cells of the
+  // same size instead of just stretching the existing ones. The
+  // REFERENCE_UNIT of 8 was chosen so the default 8×4 Hallway at
+  // subdiv=3 gives cellSize ≈ 2.67, matching the prior visual feel.
+  const LOGICAL_SUB = Math.max(1, Math.round(cs.subdiv));
+  const SUB = (N >= 32) ? 1 : LOGICAL_SUB;
+  const REFERENCE_UNIT = 8;
+  const cellSize = REFERENCE_UNIT / LOGICAL_SUB;
+  let bboxMinX = Infinity, bboxMaxX = -Infinity,
+      bboxMinZ = Infinity, bboxMaxZ = -Infinity;
+  for (const v of cs.vertices) {
+    if (v.x < bboxMinX) bboxMinX = v.x;
+    if (v.x > bboxMaxX) bboxMaxX = v.x;
+    if (v.z < bboxMinZ) bboxMinZ = v.z;
+    if (v.z > bboxMaxZ) bboxMaxZ = v.z;
+  }
+  const bboxW = bboxMaxX - bboxMinX;
+  const bboxH = bboxMaxZ - bboxMinZ;
+  const gridXs = [];   // vertical grid line x-positions
+  const gridZs = [];   // horizontal grid line z-positions
+  if (SUB > 1 || bboxW > cellSize * 1.5 || bboxH > cellSize * 1.5) {
+    const xCells = Math.max(1, Math.round(bboxW / cellSize));
+    const zCells = Math.max(1, Math.round(bboxH / cellSize));
+    for (let s = 1; s < xCells; s++) {
+      gridXs.push(bboxMinX + (s / xCells) * bboxW);
+    }
+    for (let s = 1; s < zCells; s++) {
+      gridZs.push(bboxMinZ + (s / zCells) * bboxH);
+    }
+
+    // Stamp each grid line as a set of longitudinal beams, one per
+    // crossing of the polygon boundary. polygonGridCrossings sorts by
+    // position along the grid line so non-convex polygons connect
+    // their intersection pairs sensibly.
+    //
+    // Line styling: outer-to-inner symmetric alternation. Each line's
+    // "depth" is its distance to the nearest end of the grid-line
+    // sequence (min(i, n-1-i)). Depth 0 = outermost line (closest to
+    // a corner/edge of the polygon's bbox); deeper = closer to center.
+    // Even depths render as 'line' (normal weight), odd as 'line faint'.
+    // This keeps the pattern visually symmetric for every line count:
+    //   N=2 →  N N        (no thick/faint contrast, looks like a pair)
+    //   N=3 →  N F N      (single faint divider in the middle)
+    //   N=4 →  N F F N    (inner pair faint, outer pair normal)
+    //   N=5 →  N F N F N  (symmetric rhythm)
+    //   N=6 →  N F N N F N, etc.
+    const drawBeam = (x, z, cls) => {
+      out.push({ p1: [x, -half, z], p2: [x, half, z], cls });
+    };
+    const styleForDepth = (i, n) => {
+      const depth = Math.min(i, n - 1 - i);
+      return (depth % 2 === 0) ? 'line' : 'line faint';
+    };
+    for (let i = 0; i < gridXs.length; i++) {
+      const x = gridXs[i];
+      const cls = styleForDepth(i, gridXs.length);
+      const pts = polygonGridCrossings(cs.vertices, 'x', x);
+      for (const p of pts) drawBeam(p.x, p.z, cls);
+    }
+    for (let i = 0; i < gridZs.length; i++) {
+      const z = gridZs[i];
+      const cls = styleForDepth(i, gridZs.length);
+      const pts = polygonGridCrossings(cs.vertices, 'z', z);
+      for (const p of pts) drawBeam(p.x, p.z, cls);
+    }
+  }
+
+  // ── 3. Crossbeam rings — cross-section stamped along Y ──
+  //     Ring spacing equals the wall subdivision cellSize, so every
+  //     cell in 3D is roughly the same physical size — square on the
+  //     floor (cellSize × cellSize), square on the side walls, and
+  //     the corridor's longitudinal rhythm matches what you see on
+  //     the cross-section. Crank up Width or Height and rings stay
+  //     put while wall subdivisions multiply; lengthen the corridor
+  //     and rings multiply while wall subdivisions stay put.
+  const B = Math.max(2, Math.round(cs.length / cellSize));
+  for (let b = 0; b <= B; b++) {
+    const t = b / B;
+    const y = -half + t * cs.length;
+    if (Math.abs(y) < 0.0005) continue;       // skip the ring at camera origin
+    const isEndCap  = (b === 0 || b === B);
+    if (isEndCap && cs.caps === 0) continue;  // off — no end ring at all
+    // When caps === 2 (dome), the end ring is still drawn — it's the
+    // equator of the half-dome, the line where the cross-section meets
+    // the dome's base.
+    const isHeavy   = isEndCap || (B >= 4 && (b === Math.floor(B/2)));
+    const cls       = isHeavy ? 'line heavy' : 'line';
+    for (let i = 0; i < N; i++) {
+      const a = cs.vertices[i], c = cs.vertices[(i + 1) % N];
+      out.push({ p1: [a.x, y, a.z], p2: [c.x, y, c.z], cls });
+    }
+  }
+
+  // ── 4. Camera-level ring (split at x=0 to dodge the pole) ──
+  //     When you stare straight up or down, this is the perpendicular
+  //     beam your eye expects to see — without it the centerline halves
+  //     evaporate at the pole.
+  for (let i = 0; i < N; i++) {
+    const a = cs.vertices[i], c = cs.vertices[(i + 1) % N];
+    // Split this edge around y=0 with a hair-gap, like the original.
+    out.push({ p1: [a.x, -CENTER_GAP, a.z], p2: [c.x, -CENTER_GAP, c.z], cls: 'line faint' });
+    out.push({ p1: [a.x,  CENTER_GAP, a.z], p2: [c.x,  CENTER_GAP, c.z], cls: 'line faint' });
+  }
+
+  // ── 5. Accent centerline — runs along the bottom-edge midpoint ──
+  //     Pole-split so the equirectangular plate doesn't choke on x=0.
+  {
+    const a = cs.vertices[accentEdgeIdx];
+    const b = cs.vertices[(accentEdgeIdx + 1) % N];
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    // If the accent line would coincide with the polar axis (x≈0, sampling
+    // along Y), split it around the singularity exactly like the original.
+    if (Math.abs(mx) < 0.05) {
+      out.push({ p1: [mx,  CENTER_GAP, mz], p2: [mx,  half, mz], cls: 'accent-line' });
+      out.push({ p1: [mx, -CENTER_GAP, mz], p2: [mx, -half, mz], cls: 'accent-line' });
+    } else {
+      out.push({ p1: [mx, -half, mz], p2: [mx, half, mz], cls: 'accent-line' });
+    }
+  }
+
+  // ── 6. Domed end caps (caps === 2) ─────────────────────────────
+  //     Replace the flat end-walls at y = ±L/2 with hemispherical
+  //     bulges that extend the room past its nominal length. The
+  //     dome is constructed by sweeping the cross-section from full
+  //     scale at the equator (where it meets the corridor) down to a
+  //     single apex point — at sweep angle u, every cross-section
+  //     vertex is scaled by cos(u) toward the cross-section's bbox
+  //     center, and the ring is translated outward by R·sin(u).
+  //
+  //     R is the cross-section's mean half-extent. For a true circle
+  //     this yields a genuine hemisphere; for elongated cross-sections
+  //     it gives a proportional dome (taller for taller rooms, etc.)
+  //     so a hallway gets a hallway-shaped apse, not an ill-fitting
+  //     spherical cap.
+  if (cs.caps === 2) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const v of cs.vertices) {
+      if (v.x < minX) minX = v.x;
+      if (v.x > maxX) maxX = v.x;
+      if (v.z < minZ) minZ = v.z;
+      if (v.z > maxZ) maxZ = v.z;
+    }
+    const domeCx = (minX + maxX) / 2;
+    const domeCz = (minZ + maxZ) / 2;
+    const domeR  = ((maxX - minX) + (maxZ - minZ)) / 4;
+
+    if (domeR > 0.05) {
+      const DOME_RINGS    = 4;                  // parallels between equator and apex
+      const MERIDIAN_SEGS = DOME_RINGS + 1;     // segments along each meridian arc
+
+      for (const sign of [-1, +1]) {
+        // Parallels: scaled cross-section rings at intermediate sweep
+        // angles. The equator (u=0) is already drawn by the crossbeam
+        // pass above; the apex (u=π/2) is a point, drawn implicitly
+        // by the converging meridians.
+        for (let r = 1; r <= DOME_RINGS; r++) {
+          const u     = (r / MERIDIAN_SEGS) * Math.PI / 2;
+          const scale = Math.cos(u);
+          const y     = sign * (half + domeR * Math.sin(u));
+          for (let i = 0; i < N; i++) {
+            const a = cs.vertices[i], c = cs.vertices[(i + 1) % N];
+            const ax = domeCx + (a.x - domeCx) * scale;
+            const az = domeCz + (a.z - domeCz) * scale;
+            const bx = domeCx + (c.x - domeCx) * scale;
+            const bz = domeCz + (c.z - domeCz) * scale;
+            out.push({ p1: [ax, y, az], p2: [bx, y, bz], cls: 'line' });
+          }
+        }
+
+        // Meridians: arcs sweeping from each corner-ridge endpoint up
+        // to the apex. Subsample with the same stride as the corner
+        // ridges so meridian density tracks ridge density during a
+        // morph (otherwise a 4-vertex cross-section morphing toward a
+        // 64-sample resampled polygon would suddenly spawn 64 arcs).
+        for (let i = 0; i < N; i += ridgeStride) {
+          const v = cs.vertices[i];
+          let prev = [v.x, sign * half, v.z];
+          for (let r = 1; r <= MERIDIAN_SEGS; r++) {
+            const u     = (r / MERIDIAN_SEGS) * Math.PI / 2;
+            const scale = Math.cos(u);
+            const y     = sign * (half + domeR * Math.sin(u));
+            const next  = [
+              domeCx + (v.x - domeCx) * scale,
+              y,
+              domeCz + (v.z - domeCz) * scale,
+            ];
+            out.push({ p1: prev, p2: next, cls: 'line heavy' });
+            prev = next;
+          }
+        }
+      }
+    }
+  }
+
+  // ── 7. Waffle end caps (caps === 3) ────────────────────────────
+  //     A flat cap (like caps === 1) with the wall-subdivision grid
+  //     drawn ON the end-face. Each grid line continues from the
+  //     longitudinal beams on the walls onto the cap, clipped to the
+  //     cross-section interior — so the cap pattern reads as a
+  //     waffle/coffer rather than a spider web. Perpendicular T-style
+  //     intersections everywhere, no convergence at a point.
+  //
+  //     For convex polygons each grid line crosses the boundary
+  //     exactly twice, so we pair the sorted crossings (0↔1) to draw
+  //     one beam per line. For non-convex shapes (a U-shape, say) the
+  //     polygonGridCrossings helper returns 4+ crossings; we still
+  //     pair them (0↔1, 2↔3) which correctly draws beams only inside
+  //     the polygon, skipping the U's notch.
+  if (cs.caps === 3 && SUB > 1) {
+    // Same symmetric outer-in alternation as the wall subdivisions —
+    // see the styleForDepth comment above. Using identical math here
+    // means the waffle cap's grid lines match the longitudinal beams
+    // on the walls in BOTH position AND line weight, so the cap reads
+    // as a continuation of the corridor's pattern.
+    const styleForDepth = (i, n) => {
+      const depth = Math.min(i, n - 1 - i);
+      return (depth % 2 === 0) ? 'line' : 'line faint';
+    };
+    for (const sign of [-1, +1]) {
+      const y = sign * half;
+      for (let i = 0; i < gridXs.length; i++) {
+        const x = gridXs[i];
+        const cls = styleForDepth(i, gridXs.length);
+        const pts = polygonGridCrossings(cs.vertices, 'x', x);
+        for (let k = 0; k + 1 < pts.length; k += 2) {
+          out.push({ p1: [pts[k].x, y, pts[k].z], p2: [pts[k+1].x, y, pts[k+1].z], cls });
+        }
+      }
+      for (let i = 0; i < gridZs.length; i++) {
+        const z = gridZs[i];
+        const cls = styleForDepth(i, gridZs.length);
+        const pts = polygonGridCrossings(cs.vertices, 'z', z);
+        for (let k = 0; k + 1 < pts.length; k += 2) {
+          out.push({ p1: [pts[k].x, y, pts[k].z], p2: [pts[k+1].x, y, pts[k+1].z], cls });
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
+function rebuildSceneLines() {
+  sceneLines = generateScene(room);
+}
+
+//──────────────────────────────────────────────────────────────────
+// Hemisphere room generation — a true half-sphere with a flat floor.
+//
+// Lat/lon parameterization: latitude φ ∈ [0, π/2] sweeps from the
+// floor equator (φ=0) up to the apex (φ=π/2); longitude θ ∈ [0, 2π)
+// goes around the dome's vertical axis. At latitude φ, the ring sits
+// at height z = floorZ + R·sin(φ) with radius r = R·cos(φ). Floor is
+// the equatorial disk at z = floorZ.
+//
+// Why derive R/floorZ from the cross-section's bbox: the cross-section
+// editor still drives the dome's proportions — drag a silhouette node
+// up and the dome gets taller, widen it and the dome gets wider. The
+// cross-section polygon itself is purely a silhouette indicator; the
+// 3D geometry is built parametrically from the bbox numbers.
+//──────────────────────────────────────────────────────────────────
+function generateHemisphere(cs) {
+  const out = [];
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const v of cs.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.z < minZ) minZ = v.z;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+  const Rx     = (maxX - minX) / 2;   // horizontal semi-axis (floor radius)
+  const Rz     = maxZ - minZ;         // vertical semi-axis (dome height)
+  const cx     = (minX + maxX) / 2;
+  const floorZ = minZ;
+
+  if (Rx < 0.1 || Rz < 0.1) return out;
+
+  // Resolution. LATS rings stacked between equator and apex; LONS
+  // meridians around the vertical axis. These are kept fixed (rather
+  // than driven by cs.beams / cs.subdiv) because the corridor sliders
+  // don't map cleanly to dome topology — beams are along Y, dome
+  // latitudes are along the vertical axis. Keeping them constant means
+  // the dome looks the same no matter how the other sliders move.
+  const LATS = 6;
+  const LONS = 20;
+
+  // ── Equator (floor edge) ──
+  for (let i = 0; i < LONS; i++) {
+    const a1 = (i / LONS)         * 2 * Math.PI;
+    const a2 = ((i + 1) / LONS)   * 2 * Math.PI;
+    out.push({
+      p1: [cx + Rx * Math.cos(a1), Rx * Math.sin(a1), floorZ],
+      p2: [cx + Rx * Math.cos(a2), Rx * Math.sin(a2), floorZ],
+      cls: 'line heavy',
+    });
+  }
+
+  // ── Latitude rings above the equator (not at apex — apex is a point) ──
+  // At latitude φ, horizontal radius = Rx·cos(φ), height above floor = Rz·sin(φ).
+  // When Rx = Rz this reduces to a true hemisphere; otherwise it's a
+  // half-ellipsoid of revolution about the vertical axis.
+  for (let lat = 1; lat < LATS; lat++) {
+    const phi = (lat / LATS) * Math.PI / 2;
+    const r   = Rx * Math.cos(phi);
+    const z   = floorZ + Rz * Math.sin(phi);
+    for (let i = 0; i < LONS; i++) {
+      const a1 = (i / LONS)       * 2 * Math.PI;
+      const a2 = ((i + 1) / LONS) * 2 * Math.PI;
+      out.push({
+        p1: [cx + r * Math.cos(a1), r * Math.sin(a1), z],
+        p2: [cx + r * Math.cos(a2), r * Math.sin(a2), z],
+        cls: 'line',
+      });
+    }
+  }
+
+  // ── Meridians from equator up to apex ──
+  // Apex sits at (cx, 0, floorZ + Rz). Each meridian sweeps through all
+  // LATS latitude bands so the curvature reads smoothly at the camera.
+  for (let i = 0; i < LONS; i++) {
+    const a = (i / LONS) * 2 * Math.PI;
+    let prev = [cx + Rx * Math.cos(a), Rx * Math.sin(a), floorZ];
+    for (let lat = 1; lat <= LATS; lat++) {
+      const phi = (lat / LATS) * Math.PI / 2;
+      const r   = Rx * Math.cos(phi);
+      const z   = floorZ + Rz * Math.sin(phi);
+      const next = [cx + r * Math.cos(a), r * Math.sin(a), z];
+      out.push({ p1: prev, p2: next, cls: 'line heavy' });
+      prev = next;
+    }
+  }
+
+  // ── Floor radial spokes from rim to center — spider-web pattern ──
+  // Every meridian's equator point connects to the floor center
+  // (cx, 0, floorZ) with a straight line on the floor surface. This
+  // anchors the dome visually (no more "floating ring") and echoes
+  // the meridian arcs overhead — looking down at the floor you see
+  // the same radial structure as looking up at the dome. Lines split
+  // around the camera-origin gap so they don't crowd the viewport's
+  // center marker.
+  for (let i = 0; i < LONS; i++) {
+    const a = (i / LONS) * 2 * Math.PI;
+    const ex = cx + Rx * Math.cos(a);
+    const ey = Rx * Math.sin(a);
+    // Skip the segment that would pass straight through the camera
+    // (a == 0 or π in some orientation could land on y=0); for clean
+    // visuals, draw the full spoke and let the rest of the layout
+    // handle the gap. The CENTER_GAP constant is only relevant when
+    // the spoke runs exactly along the y axis through camera, which
+    // happens for two specific meridians (front and back). For
+    // those, split around the gap; for all others, draw a single
+    // straight line to (cx, 0, floorZ).
+    const intersectsCamera = Math.abs(ey) < 0.01;
+    if (intersectsCamera) {
+      // Front/back spokes: split around CENTER_GAP so the camera
+      // origin stays clear of intersecting line work.
+      if (ex > cx) {
+        out.push({ p1: [ex, 0, floorZ], p2: [cx + CENTER_GAP, 0, floorZ], cls: 'line' });
+      } else if (ex < cx) {
+        out.push({ p1: [ex, 0, floorZ], p2: [cx - CENTER_GAP, 0, floorZ], cls: 'line' });
+      }
+    } else {
+      out.push({ p1: [ex, ey, floorZ], p2: [cx, 0, floorZ], cls: 'line' });
+    }
+  }
+
+  // ── Floor radial concentric rings — gives the floor visible texture ──
+  // Concentric circles overlap the spokes to form the spider-web's
+  // ring structure. Two rings (at 1/3 and 2/3 of the radius) read as
+  // depth without crowding the line art.
+  for (let k = 1; k <= 2; k++) {
+    const r = Rx * (k / 3);
+    for (let i = 0; i < LONS; i++) {
+      const a1 = (i / LONS)       * 2 * Math.PI;
+      const a2 = ((i + 1) / LONS) * 2 * Math.PI;
+      out.push({
+        p1: [cx + r * Math.cos(a1), r * Math.sin(a1), floorZ],
+        p2: [cx + r * Math.cos(a2), r * Math.sin(a2), floorZ],
+        cls: 'line',
+      });
+    }
+  }
+
+  // ── Accent diameter on the floor running forward/back through camera ──
+  // Pole-split around y=0 to mirror the corridor's accent-line behaviour.
+  out.push({ p1: [cx,  CENTER_GAP, floorZ], p2: [cx,  Rx, floorZ], cls: 'accent-line' });
+  out.push({ p1: [cx, -CENTER_GAP, floorZ], p2: [cx, -Rx, floorZ], cls: 'accent-line' });
+
+  return out;
+}
+
+//──────────────────────────────────────────────────────────────────
+// Camera projection (rectilinear, preserved from original)
+//──────────────────────────────────────────────────────────────────
+function toCameraFrame(p, theta0, phi0) {
+  // Translate into the eye's frame first — the camera is no longer
+  // pinned at the origin, so subtract its position before rotating.
+  const dx = p[0] - camState.pos.x;
+  const dy = p[1] - camState.pos.y;
+  const dz = p[2] - camState.pos.z;
+  const c = Math.cos(theta0), s = Math.sin(theta0);
+  const x1 = dx*c - dy*s;
+  const y1 = dx*s + dy*c;
+  const z1 = dz;
+  const cp = Math.cos(phi0), sp = Math.sin(phi0);
+  return {
+    x:  x1,
+    y:  y1*cp + z1*sp,
+    z: -y1*sp + z1*cp
+  };
+}
+
+function projectPerspective(cf) {
+  return [
+    CAM_VIEW_W/2 + f_persp * cf.x / cf.y,
+    CAM_VIEW_H/2 - f_persp * cf.z / cf.y
+  ];
+}
+
+function nearClip(c1, c2) {
+  const in1 = c1.y >= NEAR, in2 = c2.y >= NEAR;
+  if (!in1 && !in2) return null;
+  if ( in1 &&  in2) return [c1, c2];
+  const t = (NEAR - c1.y) / (c2.y - c1.y);
+  const cp = {
+    x: c1.x + t*(c2.x - c1.x),
+    y: NEAR,
+    z: c1.z + t*(c2.z - c1.z)
+  };
+  return in1 ? [c1, cp] : [cp, c2];
+}
+
+function renderCameraPOV(theta0, phi0) {
+  const parts = [];
+  for (const s of sceneLines) {
+    const c1 = toCameraFrame(s.p1, theta0, phi0);
+    const c2 = toCameraFrame(s.p2, theta0, phi0);
+    const cl = nearClip(c1, c2);
+    if (!cl) continue;
+    const [u1, v1] = projectPerspective(cl[0]);
+    const [u2, v2] = projectPerspective(cl[1]);
+    parts.push(`<line class="${s.cls}" x1="${u1.toFixed(2)}" y1="${v1.toFixed(2)}" x2="${u2.toFixed(2)}" y2="${v2.toFixed(2)}"/>`);
+  }
+  document.getElementById('cam-scene').innerHTML = parts.join('');
+}
+
+//──────────────────────────────────────────────────────────────────
+// Equirectangular projection (preserved from original)
+//──────────────────────────────────────────────────────────────────
+function projectLineEquirect(p1, p2) {
+  const N = 240;
+  // All angles are measured from the eye, which can now be off-origin.
+  const ex = camState.pos.x, ey = camState.pos.y, ez = camState.pos.z;
+  const r1 = Math.hypot(p1[0] - ex, p1[1] - ey);
+  const r2 = Math.hypot(p2[0] - ex, p2[1] - ey);
+  const POLE_R = 0.5;
+  let warp;
+  if (r1 < POLE_R && r2 >= POLE_R)      warp = (t) => t * t;
+  else if (r2 < POLE_R && r1 >= POLE_R) warp = (t) => 1 - (1 - t) * (1 - t);
+  else                                  warp = (t) => t;
+
+  const samples = new Array(N + 1);
+  let prevTheta = null;
+  for (let i = 0; i <= N; i++) {
+    const t = warp(i / N);
+    const x = (p1[0] + t*(p2[0]-p1[0])) - ex;
+    const y = (p1[1] + t*(p2[1]-p1[1])) - ey;
+    const z = (p1[2] + t*(p2[2]-p1[2])) - ez;
+    let theta = Math.atan2(x, y);
+    const r   = Math.sqrt(x*x + y*y);
+    const phi = Math.atan2(z, r);
+    if (prevTheta !== null) {
+      while (theta - prevTheta >  Math.PI) theta -= 2 * Math.PI;
+      while (theta - prevTheta < -Math.PI) theta += 2 * Math.PI;
+    }
+    prevTheta = theta;
+    samples[i] = [
+      cx_pano + f_cyl * theta,
+      cy_pano - f_cyl * phi
+    ];
+  }
+  return samples;
+}
+
+function renderCylLineHTML(samples, cls) {
+  const out = [];
+  for (const shift of [-PANO_W, 0, PANO_W]) {
+    let d = '';
+    for (let i = 0; i < samples.length; i++) {
+      d += (i === 0 ? 'M' : 'L')
+         + (samples[i][0] + shift).toFixed(1) + ','
+         +  samples[i][1].toFixed(1) + ' ';
+    }
+    out.push(`<path class="${cls}" d="${d}"/>`);
+  }
+  return out.join('');
+}
+
+function plateClassFor(sceneCls) {
+  if (sceneCls === 'accent-line') return 'accent-line';
+  if (sceneCls === 'line heavy')  return 'heavy';
+  if (sceneCls === 'line faint')  return 'faint';
+  return '';
+}
+
+function buildPlate() {
+  const chunks = [];
+  for (const s of sceneLines) {
+    const samples = projectLineEquirect(s.p1, s.p2);
+    chunks.push(renderCylLineHTML(samples, plateClassFor(s.cls)));
+  }
+  document.getElementById('plate-content').innerHTML = chunks.join('');
+}
+
+//──────────────────────────────────────────────────────────────────
+// Highlight + bearing label (preserved)
+//──────────────────────────────────────────────────────────────────
+function normTheta(t) {
+  let n = ((t + Math.PI) % (2 * Math.PI));
+  if (n < 0) n += 2 * Math.PI;
+  return n - Math.PI;
+}
+
+function bearingText(theta0, phi0) {
+  const t = normTheta(theta0);
+  const deg = Math.round(t * 180 / Math.PI);
+  const abs = Math.abs(deg);
+  const pdeg = Math.round(phi0 * 180 / Math.PI);
+  const pabs = Math.abs(pdeg);
+  const ySign = deg  < 0 ? '\u2212' : '+';
+  const pSign = pdeg < 0 ? '\u2212' : '+';
+  const prefix = ySign + abs + '\u00b0 / ' + pSign + pabs + '\u00b0 \u2014 ';
+  if (pabs >= 78) {
+    return prefix + (pdeg > 0 ? 'LOOKING STRAIGHT UP' : 'LOOKING STRAIGHT DOWN');
+  }
+  let phrase;
+  if (abs < 23)       phrase = 'facing forward';
+  else if (abs < 68)  phrase = 'facing forward-' + (deg > 0 ? 'right' : 'left');
+  else if (abs < 113) phrase = 'facing ' + (deg > 0 ? 'right' : 'left');
+  else if (abs < 158) phrase = 'facing back-' + (deg > 0 ? 'right' : 'left');
+  else                phrase = 'facing back';
+  if (pabs >= 4) phrase += ', looking ' + (pdeg > 0 ? 'up' : 'down');
+  return prefix + phrase.toUpperCase();
+}
+
+function updateHighlight(theta0, phi0) {
+  const t = normTheta(theta0);
+  const plateEl = document.getElementById('plate-svg');
+  const rect    = plateEl.getBoundingClientRect();
+  const hScale  = rect.width  / PANO_W;
+  const vScale  = rect.height / PANO_H;
+  const leftU   = cx_pano + f_cyl * (t - CAM_FOV / 2);
+  const widthU  = f_cyl * CAM_FOV;
+  const rightU  = leftU + widthU;
+  const topV    = cy_pano - f_cyl * (phi0 + CAM_VFOV / 2);
+  const bottomV = cy_pano - f_cyl * (phi0 - CAM_VFOV / 2);
+  const topPx    = topV * vScale;
+  const heightPx = (bottomV - topV) * vScale;
+  const primary = document.getElementById('hl-primary');
+  const wrap    = document.getElementById('hl-wrap');
+  primary.style.top    = topPx + 'px';
+  primary.style.height = heightPx + 'px';
+  wrap.style.top    = topPx + 'px';
+  wrap.style.height = heightPx + 'px';
+  if (leftU >= 0 && rightU <= PANO_W) {
+    primary.style.display = '';
+    primary.style.left  = (leftU * hScale) + 'px';
+    primary.style.width = (widthU * hScale) + 'px';
+    wrap.style.display = 'none';
+  } else if (leftU < 0) {
+    primary.style.display = '';
+    primary.style.left  = '0px';
+    primary.style.width = (rightU * hScale) + 'px';
+    wrap.style.display = '';
+    wrap.style.left  = ((leftU + PANO_W) * hScale) + 'px';
+    wrap.style.width = ((-leftU) * hScale) + 'px';
+  } else {
+    primary.style.display = '';
+    primary.style.left  = (leftU * hScale) + 'px';
+    primary.style.width = ((PANO_W - leftU) * hScale) + 'px';
+    wrap.style.display = '';
+    wrap.style.left  = '0px';
+    wrap.style.width = ((rightU - PANO_W) * hScale) + 'px';
+  }
+}
+
+//──────────────────────────────────────────────────────────────────
+// Main render pipeline — everything funnels through here
+//──────────────────────────────────────────────────────────────────
+// theta0/phi0 are the look direction (yaw/pitch). pos is the eye's
+// location in world space — the two camera-movement nodes write to
+// pos.x / pos.z (the cross-section handle) and pos.y (the depth rail),
+// so the viewing frustum can travel through the room on all three axes.
+const camState = { theta0: 0, phi0: 0, pos: { x: 0, y: 0, z: 0 } };
+
+function renderAll() {
+  rebuildSceneLines();
+  buildPlate();
+  renderCameraPOV(camState.theta0, camState.phi0);
+  updateHighlight(camState.theta0, camState.phi0);
+  renderEditor();
+  renderCameraSliders();
+  // Width and Height read from the cross-section's bbox, so any change
+  // to vertices (drag, insert, delete, morph step) must refresh them.
+  // syncControlsFromState also re-stamps the other sliders, which is a
+  // safe no-op when their underlying state didn't change.
+  syncControlsFromState();
+  document.getElementById('bearing-label').textContent =
+    bearingText(camState.theta0, camState.phi0);
+  document.getElementById('editor-corner').textContent =
+    room.vertices.length + ' NODES';
+}
+
+function renderCameraOnly() {
+  renderCameraPOV(camState.theta0, camState.phi0);
+  updateHighlight(camState.theta0, camState.phi0);
+  document.getElementById('bearing-label').textContent =
+    bearingText(camState.theta0, camState.phi0);
+}
+
+//──────────────────────────────────────────────────────────────────
+// Editor SVG — render the cross-section
+//   The editor uses X-right / Y-up in world space, which means we
+//   flip the SVG Y axis (SVG y goes down) when placing things.
+//   I keep one helper toScreen so the conversion lives in one place.
+//
+// EDITOR_VB is recomputed every render from the cross-section's bbox
+// (with padding), so the editor naturally zooms out to fit larger
+// rooms and stays tight on smaller ones. The .scale field tracks how
+// much we've zoomed — it's used by the per-render code to scale up
+// circle radii and label offsets so handles stay tactile at any zoom.
+// (Strokes themselves are already non-scaling via CSS vector-effect.)
+//──────────────────────────────────────────────────────────────────
+const EDITOR_VB = { x: -15, y: -12, w: 30, h: 24, scale: 1 };
+
+// Aspect ratio of the editor's base viewBox — 30:24 = 5:4. We preserve
+// this when zooming so the SVG container doesn't letterbox itself.
+const EDITOR_BASE_W = 30;
+const EDITOR_BASE_H = 24;
+
+function updateEditorViewBox() {
+  // While the user is actively dragging a handle, freeze the viewBox.
+  // Otherwise the SVG would zoom out under the cursor mid-drag (the
+  // cursor's screen position would suddenly map to a different world
+  // point), and the node being dragged would visually slip away from
+  // the cursor. We re-fit the viewBox the moment the drag ends.
+  if (dragNodeIdx !== null || dragCam) return;
+  // Fit the bbox of the cross-section inside the viewBox with ~25%
+  // padding on each side. If the cross-section is tiny, fall back to
+  // the base viewBox so we don't zoom in past usability.
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const v of room.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.z < minZ) minZ = v.z;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+  if (!isFinite(minX)) { minX = -1; maxX = 1; minZ = -1; maxZ = 1; }
+  const bboxW = maxX - minX;
+  const bboxH = maxZ - minZ;
+  // Pick a uniform scale so the bbox fits inside the base viewBox with
+  // padding (1/0.7 = ~1.43x larger than tight bbox), and never below 1.
+  const padScale = 1 / 0.7;
+  const scale = Math.max(
+    1,
+    (bboxW / EDITOR_BASE_W) * padScale,
+    (bboxH / EDITOR_BASE_H) * padScale,
+  );
+  EDITOR_VB.w = EDITOR_BASE_W * scale;
+  EDITOR_VB.h = EDITOR_BASE_H * scale;
+  // Center the viewBox on the bbox centroid. The editor's y is -z.
+  const bboxCx = (minX + maxX) / 2;
+  const bboxCz = (minZ + maxZ) / 2;
+  EDITOR_VB.x = bboxCx - EDITOR_VB.w / 2;
+  EDITOR_VB.y = -bboxCz - EDITOR_VB.h / 2;
+  EDITOR_VB.scale = scale;
+  const svg = document.getElementById('editor-svg');
+  if (svg) {
+    svg.setAttribute('viewBox',
+      `${EDITOR_VB.x} ${EDITOR_VB.y} ${EDITOR_VB.w} ${EDITOR_VB.h}`);
+  }
+}
+
+function worldToEditorY(z) { return -z; }   // flip
+function editorYToWorld(y) { return -y; }
+
+function renderEditor() {
+  updateEditorViewBox();
+  renderEditorGrid();
+  renderEditorPolygon();
+  renderEditorCamera();
+  if (animating) {
+    // While morphing, the polygon temporarily has MORPH_RES (64) vertices
+    // so the in-between shapes interpolate smoothly. Drawing 64 vertex
+    // handles, 64 labels, 64 insert markers and a swarm of subdivision
+    // dots all at once turns the editor into a ghosted blob. Clear those
+    // layers and let just the polygon outline carry the morph — the
+    // handles snap back to the target's natural vertex count on settle.
+    document.getElementById('ed-subdiv-layer').innerHTML = '';
+    document.getElementById('ed-inserts').innerHTML     = '';
+    document.getElementById('ed-nodes').innerHTML       = '';
+    document.getElementById('ed-labels').innerHTML      = '';
+    return;
+  }
+  renderEditorSubdiv();
+  renderEditorInserts();
+  renderEditorNodes();
+  renderEditorLabels();
+}
+
+function renderEditorGrid() {
+  // A 1-unit grid with emphasized axes at small scales; the step
+  // widens to 2 / 5 / 10 / 20 / 50 / 100 as the viewBox grows so we
+  // never draw more than ~40 grid lines per axis. The major-axis
+  // emphasis (x=0, z=0) still draws if those coordinates lie inside
+  // the visible range.
+  const g = document.getElementById('ed-grid');
+  const parts = [];
+  const niceSteps = [1, 2, 5, 10, 20, 50, 100, 200];
+  const targetSpan = EDITOR_VB.w / 30;   // ≥ 1 by construction
+  const step = niceSteps.find(s => s >= targetSpan) || niceSteps[niceSteps.length - 1];
+  // Iterate by integer count then multiply, to dodge floating-point creep.
+  const xStart = Math.ceil(EDITOR_VB.x / step) * step;
+  const xEnd   = EDITOR_VB.x + EDITOR_VB.w;
+  for (let x = xStart; x <= xEnd; x += step) {
+    const cls = (Math.abs(x) < 1e-6) ? 'axis' : '';
+    parts.push(`<line class="${cls}" x1="${x}" y1="${EDITOR_VB.y}" x2="${x}" y2="${EDITOR_VB.y + EDITOR_VB.h}"/>`);
+  }
+  const yStart = Math.ceil(EDITOR_VB.y / step) * step;
+  const yEnd   = EDITOR_VB.y + EDITOR_VB.h;
+  for (let y = yStart; y <= yEnd; y += step) {
+    const cls = (Math.abs(y) < 1e-6) ? 'axis' : '';
+    parts.push(`<line class="${cls}" x1="${EDITOR_VB.x}" y1="${y}" x2="${EDITOR_VB.x + EDITOR_VB.w}" y2="${y}"/>`);
+  }
+  g.innerHTML = parts.join('');
+}
+
+function polygonD(verts) {
+  if (verts.length === 0) return '';
+  let d = `M ${verts[0].x} ${worldToEditorY(verts[0].z)}`;
+  for (let i = 1; i < verts.length; i++) {
+    d += ` L ${verts[i].x} ${worldToEditorY(verts[i].z)}`;
+  }
+  d += ' Z';
+  return d;
+}
+
+function renderEditorPolygon() {
+  // In hemisphere mode, draw a smooth half-disk silhouette (floor line
+  // + elliptical arch) instead of connecting the 3 nodes as a triangle.
+  // The 3 nodes are interpreted semantically:
+  //   v[0] = floor-left, v[1] = floor-right, v[2] = apex
+  // The arc has horizontal semi-axis (Rx = half the floor span) and
+  // vertical semi-axis (Rz = apex z above the floor), so the editor's
+  // silhouette matches the 3D dome's actual cross-section.
+  let d;
+  if (room.shape === 'hemisphere' && room.vertices.length === 3) {
+    const fl = room.vertices[0], fr = room.vertices[1], ap = room.vertices[2];
+    const floorZ = (fl.z + fr.z) / 2;
+    const Rx = Math.abs(fr.x - fl.x) / 2;
+    const Rz = Math.max(0.01, ap.z - floorZ);
+    // SVG arc: from (fr.x, floor) to (fl.x, floor), large-arc=0, sweep=1
+    // Since editor's y axis is flipped (worldToEditorY negates z), the
+    // arc must be drawn in screen-space coords. We compute the apex's
+    // screen y manually to choose the right sweep direction.
+    const flX = fl.x, frX = fr.x;
+    const flY = worldToEditorY(floorZ);
+    const apY = worldToEditorY(floorZ + Rz);
+    // sweep=1 when apex is "above" floor in screen space (i.e. smaller y)
+    const sweep = apY < flY ? 1 : 0;
+    d = `M ${frX} ${flY} A ${Rx} ${Rz} 0 0 ${sweep} ${flX} ${flY} Z`;
+  } else {
+    d = polygonD(room.vertices);
+  }
+  document.getElementById('ed-edge').setAttribute('d', d);
+  document.getElementById('ed-fill').setAttribute('d', d);
+}
+
+function renderEditorCamera() {
+  // The camera marker IS the first movement node: dragging it slides
+  // the eye on X (horizontal) and Z (vertical) within the cross-section.
+  // A solid accent dot reads as "camera"; hollow dots are room vertices.
+  // Radii scale with the viewport so the handle stays tactile at any zoom.
+  const layer = document.getElementById('ed-camera-layer');
+  if (!layer) return;
+  const s     = EDITOR_VB.scale;
+  const cx    = camState.pos.x;
+  const cy    = worldToEditorY(camState.pos.z);
+  const ringR = 0.55 * s;
+  const dotR  = 0.30 * s;
+  const hitR  = 1.00 * s;   // generous, invisible grab target
+  const ringCls = 'ed-camera-ring' + (dragCam ? ' active' : '');
+  layer.innerHTML =
+    `<circle class="${ringCls}" cx="${cx}" cy="${cy}" r="${ringR}"/>` +
+    `<circle class="ed-camera" cx="${cx}" cy="${cy}" r="${dotR}" pointer-events="none"/>` +
+    `<circle class="ed-cam-hit" data-cam cx="${cx}" cy="${cy}" r="${hitR}"/>`;
+}
+
+function renderEditorSubdiv() {
+  // Show the Cartesian subdivision grid: faint full-width / full-height
+  // lines for each grid line, plus a small dot at each spot where a grid
+  // line crosses the polygon edge (= where a longitudinal beam will sit
+  // in the 3D view). Subdiv controls a CELL SIZE (= 8 / SUB); the count
+  // of grid lines per axis adapts to the cross-section's dimensions so
+  // every cell stays roughly the same physical size. Dot radius and
+  // dashed line spacing scale with viewport so the overlay stays
+  // readable at any zoom level.
+  const SUB = Math.max(1, Math.round(room.subdiv));
+  const REFERENCE_UNIT = 8;
+  const cellSize = REFERENCE_UNIT / SUB;
+  const parts = [];
+  if (room.vertices.length >= 3) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const v of room.vertices) {
+      if (v.x < minX) minX = v.x;
+      if (v.x > maxX) maxX = v.x;
+      if (v.z < minZ) minZ = v.z;
+      if (v.z > maxZ) maxZ = v.z;
+    }
+    const W = maxX - minX;
+    const H = maxZ - minZ;
+    if (SUB > 1 || W > cellSize * 1.5 || H > cellSize * 1.5) {
+      const xCells = Math.max(1, Math.round(W / cellSize));
+      const zCells = Math.max(1, Math.round(H / cellSize));
+      const y0 = worldToEditorY(maxZ);
+      const y1 = worldToEditorY(minZ);
+      const s    = EDITOR_VB.scale;
+      const r    = 0.18 * s;
+      const sw   = 0.08 * s;
+      const dash = `${0.4 * s} ${0.3 * s}`;
+      for (let n = 1; n < xCells; n++) {
+        const gx = minX + (n / xCells) * W;
+        parts.push(`<line x1="${gx}" y1="${y0}" x2="${gx}" y2="${y1}" stroke="rgba(212,192,140,0.18)" stroke-width="${sw}" stroke-dasharray="${dash}"/>`);
+        const vpts = polygonGridCrossings(room.vertices, 'x', gx);
+        for (const p of vpts) {
+          parts.push(`<circle cx="${p.x}" cy="${worldToEditorY(p.z)}" r="${r}" fill="rgba(212,192,140,0.65)" stroke="none"/>`);
+        }
+      }
+      for (let n = 1; n < zCells; n++) {
+        const gz = minZ + (n / zCells) * H;
+        const gy = worldToEditorY(gz);
+        parts.push(`<line x1="${minX}" y1="${gy}" x2="${maxX}" y2="${gy}" stroke="rgba(212,192,140,0.18)" stroke-width="${sw}" stroke-dasharray="${dash}"/>`);
+        const hpts = polygonGridCrossings(room.vertices, 'z', gz);
+        for (const p of hpts) {
+          parts.push(`<circle cx="${p.x}" cy="${worldToEditorY(p.z)}" r="${r}" fill="rgba(212,192,140,0.65)" stroke="none"/>`);
+        }
+      }
+    }
+  }
+  document.getElementById('ed-subdiv-layer').innerHTML = parts.join('');
+}
+
+function renderEditorInserts() {
+  // A "+" marker at the midpoint of every edge — click it to add a
+  // node there. Visible on editor hover (CSS handles the fade).
+  // In hemisphere mode the three nodes have semantic roles (W/W/H);
+  // adding a fourth would break that convention, so we hide the
+  // inserts entirely until the user switches back to corridor mode.
+  if (room.shape === 'hemisphere') {
+    document.getElementById('ed-inserts').innerHTML = '';
+    return;
+  }
+  const parts = [];
+  const r       = 0.42 * EDITOR_VB.scale;
+  const glyphDy = 2.5  * EDITOR_VB.scale;
+  for (let i = 0; i < room.vertices.length; i++) {
+    const a = room.vertices[i];
+    const b = room.vertices[(i + 1) % room.vertices.length];
+    const mx = (a.x + b.x) / 2;
+    const mz = (a.z + b.z) / 2;
+    const sy = worldToEditorY(mz);
+    parts.push(
+      `<g data-insert="${i}">` +
+      `<circle class="ed-insert" cx="${mx}" cy="${sy}" r="${r}"/>` +
+      `<text class="ed-insert-glyph" x="${mx}" y="${sy + glyphDy}" text-anchor="middle" pointer-events="none">+</text>` +
+      `</g>`
+    );
+  }
+  document.getElementById('ed-inserts').innerHTML = parts.join('');
+}
+
+function renderEditorNodes() {
+  // The dragging class must be re-applied every render — during a drag
+  // the nodes layer rebuilds on every pointermove, so we derive the
+  // visual state from dragNodeIdx instead of relying on the DOM holding it.
+  // Radius scales with viewport so the handle stays the same visual size
+  // when the editor zooms out to fit a larger cross-section.
+  const parts = [];
+  const r = 0.52 * EDITOR_VB.scale;
+  for (let i = 0; i < room.vertices.length; i++) {
+    const v = room.vertices[i];
+    let cls = 'ed-node';
+    if (animating)         cls += ' locked';
+    if (i === dragNodeIdx) cls += ' dragging';
+    parts.push(
+      `<circle class="${cls}" data-node="${i}" ` +
+      `cx="${v.x}" cy="${worldToEditorY(v.z)}" r="${r}"/>`
+    );
+  }
+  document.getElementById('ed-nodes').innerHTML = parts.join('');
+}
+
+function renderEditorLabels() {
+  // For corridor mode: subtle index labels next to each node (0..N-1
+  // counter-clockwise). For hemisphere mode: relabel the three nodes
+  // as W (width-left), W (width-right), H (height/apex) so they read
+  // as dedicated width-and-height handles.
+  // Label position offsets scale with viewport so labels stay close
+  // to (but not on top of) their handles at any zoom level.
+  const parts = [];
+  const isDome = room.shape === 'hemisphere' && room.vertices.length === 3;
+  const labelText = isDome ? ['W', 'W', 'H'] : null;
+  const offset    = 1.05 * EDITOR_VB.scale;
+  const yShift    = 0.6  * EDITOR_VB.scale;
+  for (let i = 0; i < room.vertices.length; i++) {
+    const v = room.vertices[i];
+    // Offset label outward from the polygon centroid.
+    const cx = room.vertices.reduce((s, p) => s + p.x, 0) / room.vertices.length;
+    const cz = room.vertices.reduce((s, p) => s + p.z, 0) / room.vertices.length;
+    const dx = v.x - cx, dz = v.z - cz;
+    const len = Math.hypot(dx, dz) || 1;
+    const ox = v.x + (dx / len) * offset;
+    const oz = v.z + (dz / len) * offset;
+    const text = labelText ? labelText[i] : String(i);
+    parts.push(`<text class="ed-label" x="${ox}" y="${worldToEditorY(oz) + yShift}" text-anchor="middle">${text}</text>`);
+  }
+  document.getElementById('ed-labels').innerHTML = parts.join('');
+}
+
+//──────────────────────────────────────────────────────────────────
+// Editor interaction — drag nodes, click to insert/delete
+//──────────────────────────────────────────────────────────────────
+// These are declared up-front because renderEditorNodes() references
+// dragNodeIdx to keep the .dragging class alive across re-renders.
+let dragNodeIdx = null;
+let dragCam = false;
+let dragPointerId = null;
+let dragStartTime = 0;
+let dragMoved = false;
+let pendingDeleteIdx = null;
+let pendingDeleteTimer = null;
+
+function editorSvgPoint(evt) {
+  const svg = document.getElementById('editor-svg');
+  const pt  = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return { x: 0, z: 0 };
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, z: editorYToWorld(p.y) };
+}
+
+let animating = false;
+
+function setupEditorInteraction() {
+  const svg = document.getElementById('editor-svg');
+
+  svg.addEventListener('pointerdown', (e) => {
+    if (animating) return;
+    const target = e.target.closest('[data-node],[data-insert],[data-cam]');
+    if (!target) return;
+
+    if (target.dataset.cam !== undefined) {
+      // Begin camera-handle drag — moves the eye on X / Z.
+      dragCam       = true;
+      dragPointerId = e.pointerId;
+      try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+      renderEditorCamera();
+      e.preventDefault();
+      return;
+    }
+
+    if (target.dataset.node !== undefined) {
+      // Begin node drag. dragNodeIdx drives the .dragging class via
+      // renderEditorNodes, so we don't touch classList directly.
+      dragNodeIdx   = parseInt(target.dataset.node, 10);
+      dragPointerId = e.pointerId;
+      dragStartTime = performance.now();
+      dragMoved     = false;
+      try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+      renderEditorNodes();
+      e.preventDefault();
+    } else if (target.dataset.insert !== undefined) {
+      const i = parseInt(target.dataset.insert, 10);
+      insertNodeOnEdge(i);
+      e.preventDefault();
+    }
+  });
+
+  svg.addEventListener('pointermove', (e) => {
+    if (dragCam) {
+      const p = editorSvgPoint(e);
+      // Clamp to the same symmetric ranges the X/Z sliders use, so the
+      // dot and the sliders stay perfectly consistent (and the eye can't
+      // wander past where the rails could put it).
+      const xh = camAxisHalf('x'), zh = camAxisHalf('z');
+      camState.pos.x = Math.max(-xh, Math.min(xh, p.x));
+      camState.pos.z = Math.max(-zh, Math.min(zh, p.z));
+      renderAll();
+      e.preventDefault();
+      return;
+    }
+    if (dragNodeIdx === null) return;
+    const p = editorSvgPoint(e);
+    // Clamp to the current viewBox so handles can't fly off-screen.
+    // With the dynamic viewBox the Z range is no longer symmetric
+    // around 0, so we derive it from the actual EDITOR_VB rectangle.
+    // Margin scales with viewport so it stays visually consistent.
+    const margin   = 0.2 * EDITOR_VB.scale;
+    const minWorldZ = -(EDITOR_VB.y + EDITOR_VB.h);
+    const maxWorldZ = -EDITOR_VB.y;
+    const cx = Math.max(EDITOR_VB.x + margin, Math.min(EDITOR_VB.x + EDITOR_VB.w - margin, p.x));
+    const cz = Math.max(minWorldZ + margin, Math.min(maxWorldZ - margin, p.z));
+    const v = room.vertices[dragNodeIdx];
+    if (Math.hypot(v.x - cx, v.z - cz) > 0.02 * EDITOR_VB.scale) dragMoved = true;
+    v.x = cx;
+    v.z = cz;
+    renderAll();
+    e.preventDefault();
+  });
+
+  const endDrag = (e) => {
+    if (dragCam) {
+      dragCam = false;
+      try { svg.releasePointerCapture(dragPointerId); } catch (_) {}
+      dragPointerId = null;
+      renderEditorCamera();
+      return;
+    }
+    if (dragNodeIdx === null) return;
+    const idx = dragNodeIdx;
+    const elapsed = performance.now() - dragStartTime;
+    const moved   = dragMoved;
+    dragNodeIdx = null;
+    try { svg.releasePointerCapture(dragPointerId); } catch (_) {}
+    dragPointerId = null;
+
+    // Quick tap with no drag motion → "double-tap to delete" check.
+    // dblclick covers desktop mice nicely; this branch handles touch
+    // and trackpads where dblclick is unreliable.
+    if (!moved && elapsed < 280) {
+      if (pendingDeleteIdx === idx) {
+        // Second tap on the same node within the window — delete it.
+        clearTimeout(pendingDeleteTimer);
+        pendingDeleteIdx = null;
+        deleteNode(idx);
+      } else {
+        // First tap — arm the delete on a subsequent tap.
+        pendingDeleteIdx = idx;
+        if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
+        pendingDeleteTimer = setTimeout(() => { pendingDeleteIdx = null; }, 350);
+      }
+    }
+    // The active-preset highlight is no longer accurate after manual edit
+    clearActivePreset();
+    // Trigger one final render so the dragging class clears
+    renderEditorNodes();
+  };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('lostpointercapture', endDrag);
+
+  // Real double-click handler — mouse-only path. Faster than the
+  // tap-tap-window above and feels right on desktop.
+  svg.addEventListener('dblclick', (e) => {
+    if (animating) return;
+    const target = e.target.closest('[data-node]');
+    if (!target) return;
+    const idx = parseInt(target.dataset.node, 10);
+    deleteNode(idx);
+  });
+}
+
+function insertNodeOnEdge(edgeIdx) {
+  const a = room.vertices[edgeIdx];
+  const b = room.vertices[(edgeIdx + 1) % room.vertices.length];
+  const mx = (a.x + b.x) / 2;
+  const mz = (a.z + b.z) / 2;
+  room.vertices.splice(edgeIdx + 1, 0, { x: mx, z: mz });
+  clearActivePreset();
+  renderAll();
+}
+
+function deleteNode(idx) {
+  if (room.vertices.length <= 3) return;
+  room.vertices.splice(idx, 1);
+  clearActivePreset();
+  renderAll();
+}
+
+//──────────────────────────────────────────────────────────────────
+// Camera movement sliders — three 1-D rails for the eye's X, Y, Z.
+//   These mirror the draggable dot in the cross-section (which sets X
+//   and Z directly); both read and write camState.pos, so dragging
+//   either keeps the other in sync. Each rail is symmetric around the
+//   origin (eye's home), and its half-range tracks the room so the
+//   readout maps to real world units:
+//     X / Z  → ±(room half-extent on that axis), with a small floor
+//              and margin so you can nudge just outside the walls;
+//     Y      → ±length/2 for a corridor, bbox-derived for the Dome.
+//──────────────────────────────────────────────────────────────────
+function camAxisHalf(axis) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const v of room.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.z < minZ) minZ = v.z;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+  const has = isFinite(minX);
+  const MARGIN = 1.2, FLOOR = 4;
+  if (axis === 'x') {
+    const ext = has ? Math.max(Math.abs(minX), Math.abs(maxX)) : FLOOR;
+    return Math.max(ext * MARGIN, FLOOR);
+  }
+  if (axis === 'z') {
+    const ext = has ? Math.max(Math.abs(minZ), Math.abs(maxZ)) : FLOOR;
+    return Math.max(ext * MARGIN, FLOOR);
+  }
+  // axis === 'y' — along the corridor
+  if (room.length > 0.01) return room.length / 2;
+  const halfW = has ? (maxX - minX) / 2 : 2;
+  return Math.max(2, halfW);     // dome / zero-length fallback
+}
+
+function fmtSigned(n) {
+  // Snap a hair so "-0.0" never shows.
+  const v = Math.abs(n) < 0.05 ? 0 : n;
+  return (v < 0 ? '\u2212' : '+') + Math.abs(v).toFixed(1);
+}
+
+const CAM_AXES = [
+  { key: 'x', track: 'track-x', node: 'node-x', fill: 'fill-x', min: 'min-x', max: 'max-x' },
+  { key: 'z', track: 'track-z', node: 'node-z', fill: 'fill-z', min: 'min-z', max: 'max-z' },
+  { key: 'y', track: 'track-y', node: 'node-y', fill: 'fill-y', min: 'min-y', max: 'max-y' },
+];
+
+function renderCameraSliders() {
+  for (const a of CAM_AXES) {
+    const half = camAxisHalf(a.key);
+    // Re-clamp: the room may have shrunk since the eye last moved.
+    camState.pos[a.key] = Math.max(-half, Math.min(half, camState.pos[a.key]));
+    const pct  = half > 0 ? ((camState.pos[a.key] + half) / (2 * half)) * 100 : 50;
+    const node = document.getElementById(a.node);
+    if (node) node.style.left = pct + '%';
+    // Fill from the centre (origin) to the handle so the offset reads at a glance.
+    const fill = document.getElementById(a.fill);
+    if (fill) {
+      const lo = Math.min(50, pct), hi = Math.max(50, pct);
+      fill.style.left  = lo + '%';
+      fill.style.width = (hi - lo) + '%';
+    }
+    const minEl = document.getElementById(a.min);
+    const maxEl = document.getElementById(a.max);
+    if (minEl) minEl.textContent = '\u2212' + half.toFixed(0);
+    if (maxEl) maxEl.textContent = '+' + half.toFixed(0);
+  }
+  const ro = document.getElementById('cam-readout');
+  if (ro) ro.textContent =
+    'x ' + fmtSigned(camState.pos.x) +
+    ' · y ' + fmtSigned(camState.pos.y) +
+    ' · z ' + fmtSigned(camState.pos.z);
+}
+
+function setupCameraSliders() {
+  for (const a of CAM_AXES) {
+    const track = document.getElementById(a.track);
+    if (!track) continue;
+    let active = false, pid = null;
+
+    const setFromClientX = (clientX) => {
+      const r = track.getBoundingClientRect();
+      let t = r.width > 0 ? (clientX - r.left) / r.width : 0.5;
+      t = Math.max(0, Math.min(1, t));
+      const half = camAxisHalf(a.key);
+      camState.pos[a.key] = (t * 2 - 1) * half;
+      renderAll();
+    };
+
+    track.addEventListener('pointerdown', (e) => {
+      active = true;
+      pid = e.pointerId;
+      try { track.setPointerCapture(pid); } catch (_) {}
+      setFromClientX(e.clientX);     // click anywhere to jump the handle there
+      e.preventDefault();
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!active) return;
+      setFromClientX(e.clientX);
+      e.preventDefault();
+    });
+    const end = () => {
+      if (!active) return;
+      active = false;
+      if (pid !== null && track.hasPointerCapture(pid)) {
+        try { track.releasePointerCapture(pid); } catch (_) {}
+      }
+      pid = null;
+    };
+    track.addEventListener('pointerup', end);
+    track.addEventListener('pointercancel', end);
+    track.addEventListener('lostpointercapture', end);
+  }
+
+  const recenter = document.getElementById('tool-recenter');
+  if (recenter) recenter.addEventListener('click', () => {
+    camState.pos.x = 0;
+    camState.pos.y = 0;
+    camState.pos.z = 0;
+    renderAll();
+  });
+}
+
+//──────────────────────────────────────────────────────────────────
+// Sliders
+//──────────────────────────────────────────────────────────────────
+// Width and Height drive the cross-section's bounding-box dimensions.
+// Width scales vertices around the bbox X center (the room widens
+// symmetrically left-right around the camera). Height scales them
+// around the FLOOR (minZ), not the bbox Z center — so the floor stays
+// fixed under the camera and only the ceiling rises when you increase
+// Height, matching what your eye expects from a real room. Dragging
+// individual vertices in the editor updates these sliders in reverse
+// via syncControlsFromState() — so the two ways of resizing stay in
+// sync. For the Dome (hemisphere) preset, Width = the distance between
+// the floor-left and floor-right handles, Height = apex Z above floor.
+//──────────────────────────────────────────────────────────────────
+function scaleCrossSection(targetW, targetH) {
+  if (room.vertices.length < 2) return;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const v of room.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.z < minZ) minZ = v.z;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+  const curW = maxX - minX;
+  const curH = maxZ - minZ;
+  const cx   = (minX + maxX) / 2;     // bbox X center — symmetric anchor for width
+  const fz   = minZ;                  // floor Z — anchor for height (camera "stands" here)
+  // Guard against degenerate bbox — translate instead of scale by ∞.
+  const sx = curW > 0.01 ? (targetW / curW) : 1;
+  const sz = curH > 0.01 ? (targetH / curH) : 1;
+  for (const v of room.vertices) {
+    v.x = cx + (v.x - cx) * sx;
+    v.z = fz + (v.z - fz) * sz;
+  }
+}
+
+function setupControls() {
+  const widthIn  = document.getElementById('ctrl-width');
+  const heightIn = document.getElementById('ctrl-height');
+  const lengthIn = document.getElementById('ctrl-length');
+  const subdivIn = document.getElementById('ctrl-subdiv');
+  const capsIn   = document.getElementById('ctrl-caps');
+
+  widthIn.addEventListener('input', () => {
+    const w = parseFloat(widthIn.value);
+    // Read current height from bbox so we only resize the chosen axis.
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const v of room.vertices) {
+      if (v.z < minZ) minZ = v.z;
+      if (v.z > maxZ) maxZ = v.z;
+    }
+    scaleCrossSection(w, maxZ - minZ);
+    document.getElementById('out-width').textContent = w.toFixed(1).replace(/\.0$/, '');
+    clearActivePreset();
+    renderAll();
+  });
+  heightIn.addEventListener('input', () => {
+    const h = parseFloat(heightIn.value);
+    let minX = Infinity, maxX = -Infinity;
+    for (const v of room.vertices) {
+      if (v.x < minX) minX = v.x;
+      if (v.x > maxX) maxX = v.x;
+    }
+    scaleCrossSection(maxX - minX, h);
+    document.getElementById('out-height').textContent = h.toFixed(1).replace(/\.0$/, '');
+    clearActivePreset();
+    renderAll();
+  });
+  lengthIn.addEventListener('input', () => {
+    room.length = parseFloat(lengthIn.value);
+    document.getElementById('out-length').textContent = room.length.toFixed(0);
+    clearActivePreset();
+    renderAll();
+  });
+  subdivIn.addEventListener('input', () => {
+    room.subdiv = parseInt(subdivIn.value, 10);
+    document.getElementById('out-subdiv').textContent = room.subdiv;
+    clearActivePreset();
+    renderAll();
+  });
+  capsIn.addEventListener('input', () => {
+    room.caps = parseInt(capsIn.value, 10);
+    document.getElementById('out-caps').textContent = CAPS_LABELS[room.caps] || 'off';
+    clearActivePreset();
+    renderAll();
+  });
+
+  document.getElementById('tool-reset').addEventListener('click', () => {
+    applyPreset(PRESETS[0]);
+    setActivePreset(0);
+  });
+  document.getElementById('tool-rotate').addEventListener('click', () => {
+    // Rotate the indexing of the vertex array — useful when the user
+    // wants the "0" node to be at a different corner.
+    if (room.vertices.length < 2) return;
+    room.vertices.push(room.vertices.shift());
+    renderAll();
+  });
+}
+
+function syncControlsFromState() {
+  // Width and Height read from the current cross-section's bbox, so
+  // every vertex drag / preset apply / morph completion automatically
+  // updates the sliders to reflect the new dimensions.
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const v of room.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.z < minZ) minZ = v.z;
+    if (v.z > maxZ) maxZ = v.z;
+  }
+  const W = maxX - minX;
+  const H = maxZ - minZ;
+  document.getElementById('ctrl-width').value = W;
+  document.getElementById('out-width').textContent = W.toFixed(1).replace(/\.0$/, '');
+  document.getElementById('ctrl-height').value = H;
+  document.getElementById('out-height').textContent = H.toFixed(1).replace(/\.0$/, '');
+  document.getElementById('ctrl-length').value = room.length;
+  document.getElementById('out-length').textContent = room.length.toFixed(0);
+  document.getElementById('ctrl-subdiv').value = room.subdiv;
+  document.getElementById('out-subdiv').textContent = room.subdiv;
+  document.getElementById('ctrl-caps').value   = room.caps;
+  document.getElementById('out-caps').textContent   = CAPS_LABELS[room.caps] || 'off';
+}
+
+//──────────────────────────────────────────────────────────────────
+// Presets — every preset is a complete cross-section + lengths
+//──────────────────────────────────────────────────────────────────
+function ring(count, fn) {
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(fn(i, count));
+  return out;
+}
+
+const PRESETS = [
+  {
+    name: 'Hallway',
+    icon: 'M2,4 L14,4 L14,12 L2,12 Z',
+    vertices: [
+      { x: -4, z: -1.5 }, { x:  4, z: -1.5 },
+      { x:  4, z:  2.5 }, { x: -4, z:  2.5 },
+    ],
+    length: 60, beams: 14, subdiv: 3, caps: 3,
+  },
+  {
+    name: 'Wide Hall',
+    icon: 'M1,5 L15,5 L15,11 L1,11 Z',
+    vertices: [
+      { x: -8, z: -1.5 }, { x:  8, z: -1.5 },
+      { x:  8, z:  3.5 }, { x: -8, z:  3.5 },
+    ],
+    length: 40, beams: 10, subdiv: 4, caps: 3,
+  },
+  {
+    name: 'Cube',
+    icon: 'M4,4 L12,4 L12,12 L4,12 Z',
+    vertices: [
+      { x: -3, z: -2 }, { x:  3, z: -2 },
+      { x:  3, z:  4 }, { x: -3, z:  4 },
+    ],
+    length: 6, beams: 3, subdiv: 4, caps: 3,
+  },
+  {
+    name: 'Cathedral',
+    icon: 'M3,12 L3,6 L8,2 L13,6 L13,12 Z',
+    vertices: [
+      { x: -4, z: -1.5 }, { x:  4, z: -1.5 },
+      { x:  4, z:  2.2 }, { x:  0, z:  6.5 },
+      { x: -4, z:  2.2 },
+    ],
+    length: 50, beams: 12, subdiv: 3, caps: 3,
+  },
+  {
+    name: 'Tube',
+    icon: 'M8,2 A6,6 0 1 1 7.99,2',
+    // 16-point circle — radius 3.5, centered on Z=0.5 so origin is inside
+    vertices: ring(16, (i, n) => {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+      return { x: Math.cos(a) * 3.5, z: 0.5 + Math.sin(a) * 3.5 };
+    }),
+    length: 40, beams: 12, subdiv: 1, caps: 3,
+  },
+  {
+    name: 'Octagon',
+    icon: 'M5,2 L11,2 L14,5 L14,11 L11,14 L5,14 L2,11 L2,5 Z',
+    vertices: ring(8, (i, n) => {
+      const a = (i / n) * Math.PI * 2 - Math.PI / 2 + Math.PI / 8;
+      return { x: Math.cos(a) * 4, z: 0.5 + Math.sin(a) * 4 };
+    }),
+    length: 30, beams: 10, subdiv: 2, caps: 3,
+  },
+  {
+    name: 'Vault',
+    icon: 'M3,14 L3,7 A5,5 0 0 1 13,7 L13,14 Z',
+    // Half-circle arch on top of a rectangular base.
+    vertices: (function() {
+      const v = [
+        { x: -4, z: -1.5 },
+        { x:  4, z: -1.5 },
+        { x:  4, z:  1.8 },
+      ];
+      // 9 points along a half-circle from x=+4,z=1.8 → x=-4,z=1.8 at radius 4
+      const R = 4;
+      const cz = 1.8;
+      for (let i = 1; i < 9; i++) {
+        const t = i / 9;
+        const a = -t * Math.PI;        // sweeps from 0 to -π → top arch
+        v.push({ x: R * Math.cos(a), z: cz + R * Math.sin(-a) });
+      }
+      // wait — let me get the math right. We want to go from
+      // (+4, 1.8) → up over → (-4, 1.8). That's a half-circle of
+      // radius 4 centered at (0, 1.8) sweeping the upper half:
+      // angle from 0 (rightmost) up through π/2 (top) to π (leftmost),
+      // so x = R·cos(a), z = cz + R·sin(a).
+      v.length = 3;
+      for (let i = 1; i < 9; i++) {
+        const a = (i / 9) * Math.PI;
+        v.push({ x: R * Math.cos(a), z: cz + R * Math.sin(a) });
+      }
+      v.push({ x: -4, z: 1.8 });
+      return v;
+    })(),
+    length: 40, beams: 12, subdiv: 2, caps: 3,
+  },
+  {
+    name: 'Dome',
+    // Half-disk silhouette icon — semicircle resting on flat floor.
+    icon: 'M3,12 L13,12 A5,5 0 0 0 3,12 Z',
+    // Three nodes drive the entire dome:
+    //   [0] floor-left  — width handle (move horizontally to set radius)
+    //   [1] floor-right — width handle (paired with [0]; their z is the floor)
+    //   [2] apex        — height handle (z determines dome height above floor)
+    // generateHemisphere() reads only the bbox of these three points, so
+    // dragging any of them maps cleanly onto its named dimension. Height
+    // and width are independent — the dome is a half-ellipsoid with
+    // horizontal semi-axis (width/2) and vertical semi-axis (height).
+    // It collapses to a true hemisphere when height = width/2 (the
+    // default below: width 8, height 4, R = 4 everywhere).
+    shape: 'hemisphere',
+    vertices: [
+      { x: -4, z: -1.5 },  // floor-left
+      { x:  4, z: -1.5 },  // floor-right
+      { x:  0, z:  2.5 },  // apex
+    ],
+    length: 0, beams: 6, subdiv: 1, caps: 3,
+  },
+  {
+    name: 'Drum',
+    icon: 'M3,4 L13,4 L11,12 L5,12 Z',
+    vertices: [
+      { x: -3, z:  3 }, { x:  3, z:  3 },
+      { x:  5, z: -2 }, { x: -5, z: -2 },
+    ],
+    length: 24, beams: 8, subdiv: 3, caps: 3,
+  },
+  {
+    name: 'Tunnel',
+    icon: 'M3,14 L3,8 A5,5 0 0 1 13,8 L13,14 Z',
+    // Curvy tunnel: low walls, smooth circular top.
+    vertices: (function() {
+      const v = [];
+      v.push({ x: -3.5, z: -1.5 });
+      v.push({ x:  3.5, z: -1.5 });
+      v.push({ x:  3.5, z:  0 });
+      // 11-point arc from (+3.5, 0) over to (-3.5, 0)
+      const R = 3.5;
+      for (let i = 1; i < 11; i++) {
+        const a = (i / 11) * Math.PI;
+        v.push({ x: R * Math.cos(a), z: R * Math.sin(a) });
+      }
+      v.push({ x: -3.5, z: 0 });
+      return v;
+    })(),
+    length: 50, beams: 14, subdiv: 1, caps: 3,
+  },
+];
+
+//──────────────────────────────────────────────────────────────────
+// Animation between presets — the morph
+//   The hard part: a preset may have a different vertex count from
+//   what's on screen. Solution: resample BOTH polygons to a common
+//   high-resolution count for the duration of the morph, animate in
+//   that space, then snap to the target's natural representation on
+//   completion. Length / beams / subdiv tween as scalars in parallel.
+//──────────────────────────────────────────────────────────────────
+const MORPH_RES = 64;    // points used during in-flight interpolation
+const MORPH_MS  = 900;
+let animRAF = null;
+
+function polygonPerimeter(verts) {
+  let p = 0;
+  const N = verts.length;
+  for (let i = 0; i < N; i++) {
+    const a = verts[i], b = verts[(i + 1) % N];
+    p += Math.hypot(b.x - a.x, b.z - a.z);
+  }
+  return p;
+}
+
+function resamplePolygon(verts, count) {
+  // Walk the polygon perimeter at uniform arc-length intervals.
+  // This preserves shape much better than naive index-aligned
+  // interpolation — a square morphing into a triangle should not
+  // collapse its top-right corner into the diagonal abruptly.
+  const N = verts.length;
+  const perim = polygonPerimeter(verts);
+  if (perim === 0) return verts.slice();
+  const step = perim / count;
+  const out = [];
+  let curIdx = 0;
+  let curDist = 0;          // distance walked along current edge
+  let curEdgeLen = Math.hypot(
+    verts[1 % N].x - verts[0].x,
+    verts[1 % N].z - verts[0].z
+  );
+  let traveled = 0;
+
+  for (let i = 0; i < count; i++) {
+    while (traveled + (curEdgeLen - curDist) < i * step && curIdx < N) {
+      traveled += (curEdgeLen - curDist);
+      curIdx++;
+      curDist = 0;
+      curEdgeLen = Math.hypot(
+        verts[(curIdx + 1) % N].x - verts[curIdx % N].x,
+        verts[(curIdx + 1) % N].z - verts[curIdx % N].z
+      );
+    }
+    const remain = (i * step) - traveled;
+    const t = curEdgeLen > 0 ? (curDist + remain) / curEdgeLen : 0;
+    const a = verts[curIdx % N];
+    const b = verts[(curIdx + 1) % N];
+    out.push({
+      x: a.x + t * (b.x - a.x),
+      z: a.z + t * (b.z - a.z),
+    });
+  }
+  return out;
+}
+
+function alignPolygons(srcSamples, dstSamples) {
+  // After resampling, two polygons share point count but may be
+  // "rotated" relative to each other — meaning sample 0 of src may
+  // align with sample 7 of dst. Try every rotation and pick the one
+  // that minimizes total squared distance. This makes morphs feel
+  // way more natural — no spiral artifacts.
+  const N = srcSamples.length;
+  let best = 0;
+  let bestCost = Infinity;
+  for (let r = 0; r < N; r++) {
+    let cost = 0;
+    for (let i = 0; i < N; i++) {
+      const a = srcSamples[i];
+      const b = dstSamples[(i + r) % N];
+      const dx = a.x - b.x, dz = a.z - b.z;
+      cost += dx*dx + dz*dz;
+    }
+    if (cost < bestCost) { bestCost = cost; best = r; }
+  }
+  if (best === 0) return dstSamples;
+  const out = new Array(N);
+  for (let i = 0; i < N; i++) out[i] = dstSamples[(i + best) % N];
+  return out;
+}
+
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function applyPreset(preset) {
+  // Instant version — used on initial load and reset.
+  room.vertices = preset.vertices.map(v => ({ x: v.x, z: v.z }));
+  room.length   = preset.length;
+  room.beams    = preset.beams;
+  room.subdiv   = preset.subdiv;
+  room.caps     = preset.caps;
+  room.shape    = preset.shape || 'corridor';
+  syncControlsFromState();
+  renderAll();
+}
+
+function morphToPreset(preset) {
+  if (animating) {
+    cancelAnimationFrame(animRAF);
+  }
+  animating = true;
+
+  // Snapshot starting state
+  const srcVerts  = room.vertices.map(v => ({ x: v.x, z: v.z }));
+  const srcLen    = room.length;
+  const srcBeams  = room.beams;
+  const srcSubdiv = room.subdiv;
+  const srcCaps   = room.caps;
+  const srcShape  = room.shape;
+
+  const dstVerts  = preset.vertices.map(v => ({ x: v.x, z: v.z }));
+  const dstLen    = preset.length;
+  const dstBeams  = preset.beams;
+  const dstSubdiv = preset.subdiv;
+  const dstCaps   = preset.caps;
+  const dstShape  = preset.shape || 'corridor';
+
+  // Resample both to the morph resolution and align by best rotation
+  const srcSamples = resamplePolygon(srcVerts, MORPH_RES);
+  let   dstSamples = resamplePolygon(dstVerts, MORPH_RES);
+  dstSamples       = alignPolygons(srcSamples, dstSamples);
+
+  const start = performance.now();
+
+  function step(now) {
+    const u = Math.min(1, (now - start) / MORPH_MS);
+    const e = easeInOutCubic(u);
+
+    // Tween geometry in resampled space
+    const morphed = new Array(MORPH_RES);
+    for (let i = 0; i < MORPH_RES; i++) {
+      const a = srcSamples[i], b = dstSamples[i];
+      morphed[i] = {
+        x: a.x + e * (b.x - a.x),
+        z: a.z + e * (b.z - a.z),
+      };
+    }
+    room.vertices = morphed;
+
+    // Scalars tween in parallel
+    room.length = srcLen   + e * (dstLen   - srcLen);
+    room.beams  = Math.round(srcBeams + e * (dstBeams - srcBeams));
+    room.subdiv = Math.round(srcSubdiv + e * (dstSubdiv - srcSubdiv));
+    room.caps   = (u < 0.5) ? srcCaps : dstCaps;
+    room.shape  = (u < 0.5) ? srcShape : dstShape;
+
+    syncControlsFromState();
+    renderAll();
+
+    if (u < 1) {
+      animRAF = requestAnimationFrame(step);
+    } else {
+      // Settle to target's natural representation — drop the
+      // MORPH_RES resampling so manual editing afterwards still
+      // operates on a clean, low-vertex-count polygon.
+      animating = false;
+      room.vertices = dstVerts;
+      room.length   = dstLen;
+      room.beams    = dstBeams;
+      room.subdiv   = dstSubdiv;
+      room.caps     = dstCaps;
+      room.shape    = dstShape;
+      syncControlsFromState();
+      renderAll();
+    }
+  }
+  animRAF = requestAnimationFrame(step);
+}
+
+//──────────────────────────────────────────────────────────────────
+// Preset buttons
+//──────────────────────────────────────────────────────────────────
+let activePresetIdx = 0;
+
+function renderPresetButtons() {
+  const bar = document.getElementById('presets-bar');
+  bar.innerHTML = PRESETS.map((p, i) => `
+    <preset-btn data-preset="${i}">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path class="icon-line" d="${p.icon}"/>
+      </svg>
+      ${p.name}
+    </preset-btn>
+  `).join('');
+  bar.querySelectorAll('preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = parseInt(btn.dataset.preset, 10);
+      setActivePreset(i);
+      morphToPreset(PRESETS[i]);
+    });
+  });
+}
+
+function setActivePreset(i) {
+  activePresetIdx = i;
+  document.querySelectorAll('preset-btn').forEach((b, j) => {
+    b.classList.toggle('active', j === i);
+  });
+}
+
+function clearActivePreset() {
+  activePresetIdx = -1;
+  document.querySelectorAll('preset-btn').forEach(b => b.classList.remove('active'));
+}
+
+//──────────────────────────────────────────────────────────────────
+// Look-around interaction (preserved)
+//──────────────────────────────────────────────────────────────────
+function clampPitch(p) {
+  return Math.max(-PHI_MAX, Math.min(PHI_MAX, p));
+}
+
+function attachDrag(el, onDelta) {
+  let active = false;
+  let lastX = 0, lastY = 0;
+  let pid = null;
+  el.addEventListener('pointerdown', (e) => {
+    active = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    pid = e.pointerId;
+    try { el.setPointerCapture(pid); } catch (_) {}
+    e.preventDefault();
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!active) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    const r = el.getBoundingClientRect();
+    onDelta(dx, dy, r.width, r.height);
+    renderCameraOnly();
+  });
+  const endDrag = () => {
+    if (!active) return;
+    active = false;
+    if (pid !== null && el.hasPointerCapture(pid)) {
+      try { el.releasePointerCapture(pid); } catch (_) {}
+    }
+    pid = null;
+  };
+  el.addEventListener('pointerup', endDrag);
+  el.addEventListener('pointercancel', endDrag);
+  el.addEventListener('lostpointercapture', endDrag);
+}
+
+attachDrag(document.getElementById('cam-panel'), (dx, dy) => {
+  camState.theta0 += -0.25 * (Math.PI / 180) * dx;
+  camState.phi0    = clampPitch(camState.phi0 + 0.25 * (Math.PI / 180) * dy);
+});
+
+attachDrag(document.getElementById('strip-panel'), (dx, dy, panelW) => {
+  camState.theta0 += -(dx / panelW) * 2 * Math.PI;
+  camState.phi0    = clampPitch(camState.phi0 + 0.25 * (Math.PI / 180) * dy);
+});
+
+window.addEventListener('resize', () => {
+  updateHighlight(camState.theta0, camState.phi0);
+});
+
+//──────────────────────────────────────────────────────────────────
+// Init
+//──────────────────────────────────────────────────────────────────
+renderPresetButtons();
+setupEditorInteraction();
+setupControls();
+setupCameraSliders();
+applyPreset(PRESETS[0]);
+setActivePreset(0);
+</script>
+</body>
+</html>
