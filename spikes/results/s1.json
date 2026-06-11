@@ -1,0 +1,81 @@
+{
+  "spike": "S1 capture throughput",
+  "question": "PRD A1: headless 1080p SVG ~1.5k nodes ≤ 4 s/frame? (W2 target 1.5 s)",
+  "machine": "Apple M1, 8 cores, 16 GB, macOS 26.2",
+  "chromiumVersion": "148.0.7778.96",
+  "viewport": "1920x1080@1",
+  "perFrameWork": "≤300 path-d rewrites (crests + 3 full mountain silhouettes) + affine transforms on all other dynamic nodes + PNG screenshot + disk write",
+  "sweep": [
+    {
+      "nodeTarget": 500,
+      "domNodes": 500,
+      "dRewriteTargets": 103,
+      "affineTargets": 383,
+      "frames": 30,
+      "medianMsPerFrame": 65.7,
+      "meanMsPerFrame": 61.6,
+      "p95MsPerFrame": 68.5,
+      "maxMsPerFrame": 70.2,
+      "medianMutateMs": 0.9,
+      "medianScreenshotWriteMs": 64.2
+    },
+    {
+      "nodeTarget": 1000,
+      "domNodes": 1000,
+      "dRewriteTargets": 203,
+      "affineTargets": 783,
+      "frames": 30,
+      "medianMsPerFrame": 67.1,
+      "meanMsPerFrame": 70.5,
+      "p95MsPerFrame": 84.4,
+      "maxMsPerFrame": 86.6,
+      "medianMutateMs": 1.6,
+      "medianScreenshotWriteMs": 65
+    },
+    {
+      "nodeTarget": 1500,
+      "domNodes": 1500,
+      "dRewriteTargets": 300,
+      "affineTargets": 1186,
+      "frames": 30,
+      "medianMsPerFrame": 83.7,
+      "meanMsPerFrame": 86.1,
+      "p95MsPerFrame": 100.7,
+      "maxMsPerFrame": 101.7,
+      "medianMutateMs": 2.5,
+      "medianScreenshotWriteMs": 80.4
+    },
+    {
+      "nodeTarget": 2250,
+      "domNodes": 2250,
+      "dRewriteTargets": 300,
+      "affineTargets": 1936,
+      "frames": 30,
+      "medianMsPerFrame": 99.6,
+      "meanMsPerFrame": 96.1,
+      "p95MsPerFrame": 102.5,
+      "maxMsPerFrame": 116.3,
+      "medianMutateMs": 3.15,
+      "medianScreenshotWriteMs": 95.4
+    },
+    {
+      "nodeTarget": 3000,
+      "domNodes": 3000,
+      "dRewriteTargets": 300,
+      "affineTargets": 2686,
+      "frames": 30,
+      "medianMsPerFrame": 100.4,
+      "meanMsPerFrame": 101.1,
+      "p95MsPerFrame": 115.7,
+      "maxMsPerFrame": 116,
+      "medianMutateMs": 4.1,
+      "medianScreenshotWriteMs": 95.4
+    }
+  ],
+  "verdict": {
+    "a1Pass": true,
+    "w2TargetPass": true,
+    "medianSPerFrameAt1500": 0.084,
+    "projectedFullExportMin450Frames": 0.6
+  }
+}

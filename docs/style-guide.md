@@ -23,10 +23,11 @@ warm salmon/amber accents.
 ## Glow recipe (SPEC §5.6)
 
 Windows, sun, accents: **core shape + two halo clones** at scale ×1.35 / ×1.9, opacity
-0.30 / 0.12, same fill. `feGaussianBlur stdDeviation=2.2` on the **accent layer only**,
-and only if spike S2 proves it byte-deterministic in the pinned headless Chromium (SPEC §5.6,
-§11.4 — _verdict slot: see docs/decisions.md S2_). The layered-halo recipe must read correctly
-with the blur disabled either way; the blur is garnish, not structure.
+0.30 / 0.12, same fill. `feGaussianBlur stdDeviation=2.2` on the **accent layer only** —
+**admitted**: spike S2 (docs/decisions.md, 2026-06-10) measured byte-identical PNGs across
+independent pinned-Chromium launches with the filter enabled (SPEC §5.6, §11.4 resolved).
+The layered-halo recipe must still read correctly with the blur disabled; the blur is
+garnish, not structure. Any browser bump re-validates via an S2 re-run.
 
 ## Hard rules
 

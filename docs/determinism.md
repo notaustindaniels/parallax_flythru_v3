@@ -23,9 +23,10 @@ on its own platform, then against goldens only if the platform matches the golde
 
 ## Render-contract browser flags
 
-_Decided by spike S2 — slot filled when S2's numbers land in docs/decisions.md._ Whatever
-launch flags S2 validates become part of the render contract; any later flag change is
-render-affecting.
+Decided by spike S2 (docs/decisions.md, 2026-06-10): **Playwright default launch flags.**
+S2 measured byte-identical PNGs across independent launches with filters enabled, under
+both default flags and `--disable-gpu` (and the two configs matched each other byte-for-
+byte). Any flag change is render-affecting and triggers the ritual below.
 
 ## Golden-frame update ritual (SPEC §5, §8.5)
 

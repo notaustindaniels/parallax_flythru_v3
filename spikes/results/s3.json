@@ -1,0 +1,298 @@
+{
+  "spike": "S3 TS block-matching flow accuracy",
+  "question": "SPEC §10: matcher direction error ≤ 5° on known translations (854×480, 16 px blocks, ±12 px SAD, variance gate ≥ 100)",
+  "machine": "Apple M1, 8 cores, 16 GB, macOS 26.2 — node 22.14.0",
+  "frameSynth": "3-octave value noise (λ 64/32/16 px) quantized to 6 flat gray levels — flat fills + crisp contours, exact float-offset ground truth",
+  "opts": {
+    "blockPx": 16,
+    "searchPx": 12,
+    "varianceMin": 100
+  },
+  "cases": [
+    {
+      "kind": "integer",
+      "truth": [
+        5,
+        0
+      ],
+      "truthMagPx": 5,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.385,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.3,
+      "medianMagErrPx": 0,
+      "matcherMs": 35
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        0,
+        6
+      ],
+      "truthMagPx": 6,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.367,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.4,
+      "medianMagErrPx": 0,
+      "matcherMs": 32
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        -7,
+        0
+      ],
+      "truthMagPx": 7,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.389,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.2,
+      "medianMagErrPx": 0,
+      "matcherMs": 36
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        0,
+        -5
+      ],
+      "truthMagPx": 5,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.193,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.2,
+      "medianMagErrPx": 0,
+      "matcherMs": 27
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        4,
+        3
+      ],
+      "truthMagPx": 5,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.178,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.4,
+      "medianMagErrPx": 0,
+      "matcherMs": 30
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        -4,
+        4
+      ],
+      "truthMagPx": 5.66,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.79,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99,
+      "medianMagErrPx": 0,
+      "matcherMs": 33
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        -5,
+        -3
+      ],
+      "truthMagPx": 5.83,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.213,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.2,
+      "medianMagErrPx": 0,
+      "matcherMs": 33
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        3,
+        -4
+      ],
+      "truthMagPx": 5,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.294,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99,
+      "medianMagErrPx": 0,
+      "matcherMs": 28
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        8,
+        5
+      ],
+      "truthMagPx": 9.43,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.281,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.1,
+      "medianMagErrPx": 0,
+      "matcherMs": 64
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        -6,
+        8
+      ],
+      "truthMagPx": 10,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.347,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99,
+      "medianMagErrPx": 0,
+      "matcherMs": 68
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        10,
+        -7
+      ],
+      "truthMagPx": 12.21,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.452,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99,
+      "medianMagErrPx": 0,
+      "matcherMs": 86
+    },
+    {
+      "kind": "integer",
+      "truth": [
+        2,
+        1
+      ],
+      "truthMagPx": 2.24,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.333,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 99.4,
+      "medianMagErrPx": 0,
+      "matcherMs": 20
+    },
+    {
+      "kind": "fractional",
+      "truth": [
+        3.5,
+        1.25
+      ],
+      "truthMagPx": 3.72,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 5.618,
+      "meanDirErrDeg": 10.718,
+      "p90DirErrDeg": 25.346,
+      "pctWithin5Deg": 31.4,
+      "medianMagErrPx": 0.554,
+      "matcherMs": 49
+    },
+    {
+      "kind": "fractional",
+      "truth": [
+        -4.75,
+        2.5
+      ],
+      "truthMagPx": 5.37,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 5.957,
+      "meanDirErrDeg": 8.624,
+      "p90DirErrDeg": 17.241,
+      "pctWithin5Deg": 40.4,
+      "medianMagErrPx": 0.463,
+      "matcherMs": 57
+    },
+    {
+      "kind": "fractional",
+      "truth": [
+        6.25,
+        -5.5
+      ],
+      "truthMagPx": 8.33,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 3.652,
+      "meanDirErrDeg": 5.482,
+      "p90DirErrDeg": 9.342,
+      "pctWithin5Deg": 74,
+      "medianMagErrPx": 0.515,
+      "matcherMs": 63
+    },
+    {
+      "kind": "fractional",
+      "truth": [
+        1.5,
+        0.75
+      ],
+      "truthMagPx": 1.68,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 18.435,
+      "meanDirErrDeg": 25.9,
+      "p90DirErrDeg": 53.13,
+      "pctWithin5Deg": 23.7,
+      "medianMagErrPx": 0.559,
+      "matcherMs": 46
+    },
+    {
+      "kind": "noisy-integer",
+      "truth": [
+        5,
+        3
+      ],
+      "truthMagPx": 5.83,
+      "texturedBlocks": 866,
+      "totalBlocks": 1428,
+      "medianDirErrDeg": 0,
+      "meanDirErrDeg": 0.619,
+      "p90DirErrDeg": 0,
+      "pctWithin5Deg": 98.8,
+      "medianMagErrPx": 0,
+      "matcherMs": 73
+    }
+  ],
+  "verdict": {
+    "gateMedianLe5DegAllIntegerCases": true,
+    "gateMeanLe5DegAllIntegerCases": true,
+    "gateTexturedBlocksGe400AllCases": true,
+    "worstIntegerMedianDirErrDeg": 0,
+    "worstIntegerMeanDirErrDeg": 0.79,
+    "fractionalInformational": {
+      "worstMedianDirErrDeg": 18.435
+    },
+    "noisyInformational": {
+      "medianDirErrDeg": 0
+    }
+  }
+}

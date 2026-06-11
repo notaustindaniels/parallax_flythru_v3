@@ -1,0 +1,103 @@
+{
+  "spike": "S2 feGaussianBlur / filter determinism",
+  "question": "PRD A3: SVG filters render byte-identically across independent headless-Chromium launches?",
+  "machine": "Apple M1, 8 cores, 16 GB, macOS 26.2",
+  "chromiumVersion": "148.0.7778.96",
+  "glowRecipe": "core + halo ×1.35 (op .30) + halo ×1.9 (op .12); feGaussianBlur stdDeviation=2.2 on accent layer only (SPEC §5.6); 2 gradients; fractional coords throughout",
+  "cases": [
+    {
+      "config": "playwright-default",
+      "variant": "glow-v0",
+      "hashes": [
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970",
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970",
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970",
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "playwright-default",
+      "variant": "glow-v1",
+      "hashes": [
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0",
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0",
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0",
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "playwright-default",
+      "variant": "glow-v2",
+      "hashes": [
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9",
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9",
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9",
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "playwright-default",
+      "variant": "no-filter-control",
+      "hashes": [
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c",
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c",
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c",
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "disable-gpu",
+      "variant": "glow-v0",
+      "hashes": [
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970",
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970",
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970",
+        "aef232b5e1cb8621eb47663d6a87749c2be89f8f07c0f267c3af1ee99b34a970"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "disable-gpu",
+      "variant": "glow-v1",
+      "hashes": [
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0",
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0",
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0",
+        "edee08e20b2f501f8935b27ac4559ec9f96372ecb93c7d8240eb8c4e3690b0f0"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "disable-gpu",
+      "variant": "glow-v2",
+      "hashes": [
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9",
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9",
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9",
+        "1a5413747a071be84124df504a90265211538ac49b8a2328d2a46719fc6deea9"
+      ],
+      "byteIdentical": true
+    },
+    {
+      "config": "disable-gpu",
+      "variant": "no-filter-control",
+      "hashes": [
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c",
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c",
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c",
+        "baa8b39909fd4dc6901dd7ff813c77d25c3027cc3584a93b7b0b3434c481875c"
+      ],
+      "byteIdentical": true
+    }
+  ],
+  "verdict": {
+    "a3PassDefaultFlags": true,
+    "a3PassDisableGpu": true,
+    "feGaussianBlurAdmitted": true,
+    "renderContractFlags": "playwright-default"
+  }
+}
