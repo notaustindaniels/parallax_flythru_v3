@@ -1,0 +1,21 @@
+{
+  "sky.top": "#142b35",
+  "sky.horizon": "#e89a6a",
+  "sun.disc": "#f6c87e",
+  "sun.glow": "#f0a35c",
+  "water.far": "#2b5560",
+  "water.body": "#173741",
+  "water.crest": "#3f6b74",
+  "water.foamLit": "#f4e8d4",
+  "water.foamShade": "#c9a98e",
+  "city.silhouette": "#1d3038",
+  "city.lit": "#28424c",
+  "city.window": "#ffb35c",
+  "city.windowGlow": "#ff9e42",
+  "mtn.near": "#24454f",
+  "mtn.mid": "#3c5f68",
+  "mtn.far": "#5d7f86",
+  "haze": "#d98e63",
+  "cloud": "#e8c9a8",
+  "accent": "#e07856"
+}

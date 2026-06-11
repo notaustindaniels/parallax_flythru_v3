@@ -1,0 +1,9 @@
+pnpm-lock.yaml
+docs/reference/
+spikes/results/
+out/
+dist/
+# binding documents — change by explicit amendment only (CLAUDE.md rule 5), never reflowed
+SPEC.md
+PRD.md
+CLAUDE.md

@@ -1,0 +1,7 @@
+{
+  "name": "@vectorflight/scenes",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Scene data only: *.scene.json + *.palette.json (design tokens). Zero code by design — PRD M5 requires scenes expressible as data."
+}

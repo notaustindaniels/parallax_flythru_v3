@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Parallax flight — depth-mapped wireframe sea</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,300;1,9..144,400;1,9..144,500&family=JetBrains+Mono:wght@400;500&display=swap"/>
+<style>
+  :root {
+    --bg:        #0a1018;
+    --sky-top:   #0a1018;
+    --sky-mid:   #11202f;
+    --horizon:   #2b4259;
+    --panel:     #04080f;
+    --line:      #d4c08c;
+    --line-dim:  rgba(212, 192, 140, 0.55);
+    --line-faint:rgba(212, 192, 140, 0.22);
+    --accent:    #c97a5a;
+    --accent-dim:rgba(201, 122, 90, 0.5);
+    --accent-glow: rgba(201, 122, 90, 0.18);
+    --foam:      #ece2c8;
+    --frame:     #1a2230;
+    --frame-soft: #0e1623;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--bg); color: var(--line);
+    font-family: 'Fraunces', serif; font-style: italic; -webkit-font-smoothing: antialiased;
+  }
+  wrap { display: block; max-width: 1180px; margin: 0 auto; padding: 40px 24px 64px; }
+  h1 {
+    font-family: 'Fraunces', serif; font-style: italic; font-weight: 300;
+    font-size: clamp(24px, 3.4vw, 38px); line-height: 1.1; letter-spacing: -0.01em;
+    margin: 0 0 12px; color: var(--line);
+  }
+  p.body {
+    font-family: 'Fraunces', serif; font-style: italic; font-weight: 400;
+    font-size: clamp(14px, 1.3vw, 16px); line-height: 1.55;
+    color: rgba(212, 192, 140, 0.78); margin: 0 0 22px; max-width: 80ch;
+  }
+  panel-title {
+    display: block; font-family: 'JetBrains Mono', monospace; font-style: normal;
+    font-size: 10px; letter-spacing: 0.22em; color: rgba(212, 192, 140, 0.55);
+    text-transform: uppercase; margin: 0 0 8px;
+  }
+  scene-panel {
+    display: block; position: relative; width: 100%; aspect-ratio: 5 / 3;
+    background: var(--panel); border: 1px solid var(--frame); overflow: hidden; user-select: none;
+  }
+  scene-panel::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 6;
+    background: radial-gradient(ellipse 78% 88% at 50% 44%, transparent 40%, rgba(0,0,0,0.6) 100%);
+  }
+  scene-svg { display: block; width: 100%; height: 100%; }
+  bearing {
+    position: absolute; top: 12px; left: 14px; z-index: 7; pointer-events: none;
+    font-family: 'JetBrains Mono', monospace; font-style: normal;
+    font-size: 10.5px; letter-spacing: 0.18em; color: var(--accent);
+  }
+  formula {
+    position: absolute; bottom: 11px; right: 14px; z-index: 7; pointer-events: none;
+    font-family: 'JetBrains Mono', monospace; font-style: normal;
+    font-size: 10px; letter-spacing: 0.08em; color: rgba(212, 192, 140, 0.5);
+  }
+  hud {
+    position: absolute; top: 12px; right: 14px; text-align: right; z-index: 7; pointer-events: none;
+    font-family: 'JetBrains Mono', monospace; font-style: normal;
+    font-size: 10px; letter-spacing: 0.06em; color: rgba(212, 192, 140, 0.7); line-height: 1.5;
+  }
+  hud b { color: var(--accent); font-weight: 500; }
+
+  .ln       { fill: none; stroke: var(--line); vector-effect: non-scaling-stroke; }
+  .ln.heavy { stroke-width: 1.6; }
+  .ln.faint { stroke: var(--line-faint); }
+  .acc      { fill: none; stroke: var(--accent); vector-effect: non-scaling-stroke; }
+  .crosshair{ stroke: var(--line); stroke-width: 1; opacity: 0.32; fill: none; vector-effect: non-scaling-stroke; }
+
+  instrument { display: grid; grid-template-columns: 1fr 300px; gap: 22px; margin-top: 18px; align-items: start; }
+  @media (max-width: 820px) { instrument { grid-template-columns: 1fr; } }
+  controls-block, readout-block {
+    display: block; padding: 16px 16px 14px; border: 1px solid var(--frame); background: var(--frame-soft);
+  }
+  controls-row { display: grid; grid-template-columns: 96px 1fr 66px; align-items: center; gap: 14px; padding: 6px 0; }
+  controls-row + controls-row { border-top: 1px solid rgba(26, 34, 48, 0.6); }
+  controls-row label {
+    font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 9.5px;
+    letter-spacing: 0.16em; color: rgba(212, 192, 140, 0.62); text-transform: uppercase;
+  }
+  controls-row output { font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 11px; color: var(--accent); text-align: right; }
+  input[type="range"] { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; margin: 0; cursor: pointer; }
+  input[type="range"]::-webkit-slider-runnable-track { height: 1px; background: rgba(212, 192, 140, 0.3); }
+  input[type="range"]::-moz-range-track { height: 1px; background: rgba(212, 192, 140, 0.3); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--bg); border: 1.5px solid var(--accent); margin-top: -5.5px; cursor: grab; box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 1.5px solid var(--accent); cursor: grab; box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+  readout-block panel-title { margin-bottom: 12px; }
+  readout-row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 0;
+    font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 10.5px; letter-spacing: 0.04em; color: rgba(212, 192, 140, 0.7);
+  }
+  readout-row + readout-row { border-top: 1px solid rgba(26, 34, 48, 0.5); }
+  readout-row .v { color: var(--accent); }
+  readout-note { display: block; margin-top: 12px; font-family: 'Fraunces', serif; font-style: italic; font-size: 12.5px; line-height: 1.5; color: rgba(212, 192, 140, 0.55); }
+  tools-row { display: flex; gap: 6px; margin-top: 12px; }
+  tool-btn {
+    flex: 1; padding: 8px 10px; border: 1px solid var(--frame); background: transparent; color: rgba(212, 192, 140, 0.75);
+    font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  tool-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+  tool-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(201,122,90,0.08); }
+</style>
+</head>
+<body>
+<wrap>
+  <h1>Parallax flight — a depth-mapped wireframe sea</h1>
+  <p class="body">The dome panorama, flown forward over open water at speed. The camera genuinely advances along +Y, so each layer grows at its own rate set by <em>ṡ = f·ℓ·v / d²</em> — apparent motion falling off as the inverse square of distance. The foreground crests rush up and past you; the city and mountains, kilometres off, swell only slowly. Each crest is a hatch-node bundle that gains strokes, waviness, and foam as it nears. Move the sliders to retune the flight.</p>
+
+  <panel-title>Inside the dome · flying forward along +Y</panel-title>
+  <scene-panel id="panel">
+    <bearing id="bearing">FLYING FORWARD · ALT 40 m</bearing>
+    <hud id="hud"></hud>
+    <svg id="svg" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="var(--sky-top)"/>
+          <stop offset="58%" stop-color="var(--sky-mid)"/>
+          <stop offset="100%" stop-color="var(--horizon)"/>
+        </linearGradient>
+        <linearGradient id="waterGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"  stop-color="var(--horizon)"/>
+          <stop offset="20%" stop-color="#0d1825"/>
+          <stop offset="100%" stop-color="#05090f"/>
+        </linearGradient>
+        <linearGradient id="hazeGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="rgba(212,200,170,0)"/>
+          <stop offset="50%"  stop-color="rgba(214,205,180,0.5)"/>
+          <stop offset="100%" stop-color="rgba(212,200,170,0)"/>
+        </linearGradient>
+        <linearGradient id="mistGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="rgba(223,215,193,0)"/>
+          <stop offset="42%"  stop-color="rgba(226,218,197,0.95)"/>
+          <stop offset="66%"  stop-color="rgba(220,211,186,0.9)"/>
+          <stop offset="100%" stop-color="rgba(223,215,193,0)"/>
+        </linearGradient>
+        <linearGradient id="mtnFill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stop-color="rgba(212,192,140,0.16)"/>
+          <stop offset="100%" stop-color="rgba(212,192,140,0.02)"/>
+        </linearGradient>
+        <clipPath id="waterClip"><rect x="0" y="432" width="1000" height="168"/></clipPath>
+      </defs>
+
+      <!-- 1 · sky dome -->
+      <rect x="0" y="0" width="1000" height="600" fill="url(#skyGrad)"/>
+      <g id="cloud-layer"></g>
+
+      <!-- 2 · mountains — grow monotonically as the camera advances -->
+      <g id="mtn"></g>
+
+      <!-- 3 · city — buildings + reflections, grow monotonically as we approach -->
+      <g id="city"></g>
+
+      <!-- mist veil over the distance: swells briefly to hide the flight's loop reset -->
+      <rect id="mist-veil" x="0" y="284" width="1000" height="172" fill="url(#mistGrad)" opacity="0"/>
+
+      <!-- horizon seam + misty haze band -->
+      <line id="horizon-line" class="ln faint" x1="0" y1="432" x2="1000" y2="432"/>
+      <rect id="haze-band" x="0" y="418" width="1000" height="30" fill="url(#hazeGrad)" opacity="0.55"/>
+
+      <!-- 4 · water surface -->
+      <rect x="0" y="432" width="1000" height="168" fill="url(#waterGrad)"/>
+      <g id="farwater-layer"></g>
+
+      <!-- 5 · streaming crest field (the nested reveal) -->
+      <g id="crest-layer" clip-path="url(#waterClip)"></g>
+
+      <!-- 6 · reticle -->
+      <g class="crosshair" id="reticle">
+        <line x1="488" y1="300" x2="512" y2="300"/>
+        <line x1="500" y1="288" x2="500" y2="312"/>
+      </g>
+    </svg>
+    <formula>ṡ = f·ℓ·v / d²&nbsp;&nbsp;&nbsp;(inverse-square parallax)</formula>
+  </scene-panel>
+
+  <instrument>
+    <controls-block>
+      <panel-title>Flight parameters · the inputs to the math</panel-title>
+      <controls-row><label>Altitude h</label><input type="range" id="c-h" min="10" max="120" step="1" value="40"/><output id="o-h">40 m</output></controls-row>
+      <controls-row><label>Speed v</label><input type="range" id="c-v" min="0" max="260" step="2" value="120"/><output id="o-v">120 m/s</output></controls-row>
+      <controls-row><label>Mtn dist</label><input type="range" id="c-md" min="2" max="10" step="0.1" value="3.6"/><output id="o-md">3.6 mi</output></controls-row>
+      <controls-row><label>Wave λ</label><input type="range" id="c-l" min="4" max="40" step="0.5" value="12"/><output id="o-l">12 m</output></controls-row>
+      <controls-row><label>Wave ht</label><input type="range" id="c-a" min="0.2" max="4" step="0.1" value="1.2"/><output id="o-a">1.2 m</output></controls-row>
+      <tools-row>
+        <tool-btn id="t-pause">Pause</tool-btn>
+        <tool-btn id="t-reset">Reset</tool-btn>
+      </tools-row>
+    </controls-block>
+
+    <readout-block>
+      <panel-title>Derived motion · ṡ = f·ℓ·v / d²</panel-title>
+      <readout-row><span>Near water (d≈<i id="r-dn">146</i> m)</span><span class="v" id="r-near">161 px/s</span></readout-row>
+      <readout-row><span>Mid water (d≈600 m)</span><span class="v" id="r-mid">9 px/s</span></readout-row>
+      <readout-row><span>City spire (d≈3.2 km)</span><span class="v" id="r-city">2 px/s</span></readout-row>
+      <readout-row><span>Mountains (2.4 km tall)</span><span class="v" id="r-mtn">6 px/s</span></readout-row>
+      <readout-row><span>Depth contrast (near÷mtn)</span><span class="v" id="r-ratio">×26</span></readout-row>
+      <readout-row><span>Crests in view</span><span class="v" id="r-crests">—</span></readout-row>
+      <readout-note id="r-note"></readout-note>
+    </readout-block>
+  </instrument>
+</wrap>
+
+<script>
+"use strict";
+
+//──────────────────────────────────────────────────────────────────
+// Camera — room-studio2's rectilinear pinhole.  u = f·x/y , v = f·z/y
+//──────────────────────────────────────────────────────────────────
+const VIEW_W = 1000, VIEW_H = 600;
+const HFOV   = 70 * Math.PI / 180;
+const F      = (VIEW_W / 2) / Math.tan(HFOV / 2);   // ≈ 714 px
+const HORIZON_Y = 432;                  // eye-level row (water = bottom 28%)
+const WATER_PX  = VIEW_H - HORIZON_Y;   // 168 px of visible water
+const CX        = VIEW_W / 2;
+const M_PER_MILE = 1609.34;
+const FOAM_XMAX  = 150;   // half-width (world metres) over which crest foam is scattered
+
+// Fixed background depths (metres). The city sits on the far shore; the
+// mountains stand behind it. Heights set their on-screen scale.
+const D_CITY  = 3200, H_CITY = 300;
+const H_MTN   = 2400;
+const D_CLOUD = 16000;
+
+// Loop leg: how far (m) the camera advances before the flight recycles.
+// The far layers grow MONOTONICALLY across the whole leg (a true forward
+// approach, not a pulse), then reset — hidden behind a brief mist swell.
+// Kept under the nearest far depth so the scale never blows up, and short
+// enough that the city stays a distant skyline rather than "arriving".
+const LEG    = 900;
+const PHASE0 = 0.12;   // start the clock just past the seam so we don't open in mist
+const SEAM_W = 0.08;   // half-width (in leg-fraction) of the mist-masked reset window
+
+//──────────────────────────────────────────────────────────────────
+// Live flight parameters
+//──────────────────────────────────────────────────────────────────
+const P = { h: 40, v: 120, mtnMiles: 3.6, lambda: 12, amp: 1.2 };
+
+//──────────────────────────────────────────────────────────────────
+// Projection helpers
+//──────────────────────────────────────────────────────────────────
+function waterY(d)        { return HORIZON_Y + F * P.h / d; }   // screen row of a water point at depth d
+function nearWaterDepth() { return F * P.h / WATER_PX; }        // depth of the nearest visible water
+function parallaxSpeed(ell, d) { return F * ell * P.v / (d * d); }
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+function map(v, a, b, c, d) { return c + (d - c) * ((v - a) / (b - a)); }
+function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+function rng(seed) { const s = Math.sin(seed * 127.1 + 0.7) * 43758.5453; return s - Math.floor(s); }
+
+//──────────────────────────────────────────────────────────────────
+// ADVANCING CAMERA — the far layers approach for real.
+//
+// The camera moves +Y at speed v, so a far object's depth shrinks and it
+// grows like  scale = D / (D − camDist).  camDist climbs across the whole
+// leg, so the city and mountains grow MONOTONICALLY the entire time — a
+// genuine forward approach, never a pulse.  At the end of the leg the
+// flight recycles; that one discontinuity is hidden inside a brief mist
+// swell (see the mask), so the eye only ever sees forward motion.  The
+// nearer city grows faster than the farther mountains — that size split
+// IS the parallax.
+//──────────────────────────────────────────────────────────────────
+function tfAbout(s) {
+  return `translate(${CX} ${HORIZON_Y}) scale(${s.toFixed(4)}) translate(${-CX} ${-HORIZON_Y})`;
+}
+function approachState(D, totalDist) {
+  const phase   = ((((totalDist / LEG) + PHASE0) % 1) + 1) % 1;   // [0,1), 0 at the seam
+  const camDist = phase * LEG;
+  const scale   = D / (D - camDist);
+  const edge    = Math.min(phase, 1 - phase);                     // 0 right at the seam
+  const mask    = 1 - smoothstep(0, SEAM_W, edge);                // 1 at the seam, 0 elsewhere
+  return { scale, mask };
+}
+
+//──────────────────────────────────────────────────────────────────
+// HATCH NODE PORT — one sea crest, drawn with CORRECT radial flow.
+//
+// The swell itself is a solid wavy line spanning the width (a crest at a
+// fixed depth is a horizontal line, so it sweeps straight down as it
+// nears). The motion you actually read comes from the foam: each fleck is
+// pinned to a fixed world-X, so its screen-x = CX + f·X/d swings OUTWARD
+// from centre and its y drops as the crest approaches — foam flows
+// down-and-out from the focus of expansion, the true optical flow of a
+// surface you fly over (no funnel). Detail ramps with projected size
+// sizePx = f·amp/d: far crest = faint hairline; near crest = bold wavy
+// swell with fast outward-streaking whitecaps that slide off the sides.
+//──────────────────────────────────────────────────────────────────
+function hatchCrest(d, seed, t) {
+  const y0 = waterY(d);
+  if (y0 < HORIZON_Y - 1 || y0 > VIEW_H + 90) return "";
+
+  const sizePx = F * P.amp / d;                     // projected crest height — the detail driver
+  const op    = clamp(map(sizePx, 0.2, 8, 0.05, 1), 0.05, 1);
+  const sw    = clamp(0.4 + sizePx * 0.30, 0.4, 3.6);
+  const wav   = clamp(sizePx * 1.5, 0.6, 13);
+  const freqX = 3.5 + rng(seed + 9) * 3;
+  const ph1   = rng(seed) * 6.283, ph2 = rng(seed + 3) * 6.283;
+  const drift = t * 0.4;                            // slow surface shimmer; the flow dominates
+  const SEG   = sizePx > 1.2 ? 46 : 22;
+
+  const waveY = (x) => {
+    const u = (x / VIEW_W) * Math.PI * 2;
+    return wav * Math.sin(u * freqX + ph1 + drift) + wav * 0.3 * Math.sin(u * freqX * 2.1 + ph2 + drift * 1.4);
+  };
+  const linePath = (yOff, amp) => {
+    let s = "";
+    for (let i = 0; i <= SEG; i++) {
+      const x = -40 + 1080 * (i / SEG);
+      s += (i === 0 ? "M" : "L") + x.toFixed(1) + "," + (y0 + yOff + amp * waveY(x)).toFixed(1) + " ";
+    }
+    return s;
+  };
+
+  let g = `<g opacity="${op.toFixed(3)}">`;
+  // the swell crest line (sweeps straight down as it nears)
+  g += `<path d="${linePath(0, 1)}" fill="none" stroke="var(--line)" stroke-width="${sw.toFixed(2)}" vector-effect="non-scaling-stroke" stroke-linecap="round"/>`;
+  // a fainter near-face line gives nearer swells some volume
+  if (sizePx > 2.5) {
+    g += `<path d="${linePath(sizePx * 0.9, 0.8)}" fill="none" stroke="var(--line)" stroke-width="${(sw * 0.7).toFixed(2)}" opacity="0.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/>`;
+  }
+
+  // RADIAL FOAM — pinned to fixed world-X, so it splays outward + accelerates as d shrinks.
+  if (sizePx > 1.1) {
+    const NF = clamp(Math.round(sizePx * 3), 5, 20);
+    for (let j = 0; j < NF; j++) {
+      const Xw = (rng(seed * 13 + j * 7) - 0.5) * 2 * FOAM_XMAX;   // world metres, stable per crest
+      const sx = CX + F * Xw / d;
+      if (sx < -24 || sx > VIEW_W + 24) continue;                 // slid off the side
+      const sy  = y0 + waveY(sx) - rng(seed * 5 + j) * sizePx * 0.7;
+      const fr  = 0.6 + rng(seed * 3 + j) * sizePx * 0.22;
+      const fop = clamp(map(sizePx, 1.1, 8, 0.25, 1), 0.2, 1) * (0.65 + rng(j) * 0.35);
+      if (sizePx > 3) {   // near + fast: a short vertical streak reads as speed
+        const len = Math.min(sizePx * 1.9, 22);
+        g += `<line x1="${sx.toFixed(1)}" y1="${sy.toFixed(1)}" x2="${sx.toFixed(1)}" y2="${(sy + len).toFixed(1)}" stroke="var(--foam)" stroke-width="${fr.toFixed(2)}" opacity="${fop.toFixed(2)}" vector-effect="non-scaling-stroke" stroke-linecap="round"/>`;
+      } else {
+        g += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${fr.toFixed(2)}" fill="var(--foam)" opacity="${fop.toFixed(2)}"/>`;
+      }
+    }
+    // a few warm accent flecks on the closest crests
+    if (sizePx > 4) {
+      for (let j = 0; j < 3; j++) {
+        const Xw = (rng(seed * 23 + j) - 0.5) * 2 * FOAM_XMAX * 0.7;
+        const sx = CX + F * Xw / d;
+        if (sx < 0 || sx > VIEW_W) continue;
+        const sy = y0 + waveY(sx) - rng(seed * 7 + j) * sizePx;
+        g += `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="${(0.6 + rng(j) * sizePx * 0.12).toFixed(2)}" fill="var(--accent)" opacity="0.5"/>`;
+      }
+    }
+  }
+  g += `</g>`;
+  return g;
+}
+
+//──────────────────────────────────────────────────────────────────
+// Crest field — the nested reveal. Crests sit at FIXED WORLD ROWS λ
+// apart; as the eye advances each crest's depth shrinks, so it streams
+// down-screen, grows, and accelerates (inverse-square) toward the
+// camera. The phase is the camera's travel modulo λ, so the comb is
+// perfectly periodic — crests are continuously revealed at the horizon
+// and rake off the bottom with no jump. Crucially each crest is seeded
+// by its world-row index K (not the loop counter), so its shape travels
+// WITH it as it approaches instead of re-randomising every wrap.
+//──────────────────────────────────────────────────────────────────
+const D_FAR = 4200, MIN_DY = 1.2, MAX_CRESTS = 96;
+function buildCrests(totalDist, t) {
+  const dNear = nearWaterDepth();
+  const phase = ((totalDist) % P.lambda + P.lambda) % P.lambda;
+  const N = Math.floor(totalDist / P.lambda);   // which world rows are in front of us now
+  const out = [];
+  let count = 0, lastY = 1e9;
+  for (let k = -1; ; k++) {
+    const d = dNear - phase + k * P.lambda;
+    if (d > D_FAR) break;
+    if (d < 5) continue;
+    const sizePx = F * P.amp / d;
+    if (sizePx < 0.16) break;
+    const y0 = waterY(d);
+    if (count > 0 && (lastY - y0) < MIN_DY) continue;
+    lastY = y0;
+    const m = hatchCrest(d, N + k, t);          // stable per-wave seed
+    if (m) { out.push(m); count++; }
+    if (count >= MAX_CRESTS) break;
+  }
+  document.getElementById("crest-layer").innerHTML = out.join("");
+  return count;
+}
+
+//──────────────────────────────────────────────────────────────────
+// Far-water band — faint near-static hatch between horizon and where
+// individual crests resolve. Huge depth ⇒ negligible motion, gentle shimmer.
+//──────────────────────────────────────────────────────────────────
+function buildFarWater(t) {
+  const lines = [];
+  const yStart = waterY(D_FAR);
+  const span = yStart - HORIZON_Y;
+  const N = 8;
+  for (let i = 0; i < N; i++) {
+    const fy = HORIZON_Y + 1 + (i / N) * span;
+    const op = 0.05 + (i / N) * 0.12;
+    let dstr = "";
+    for (let s = 0; s <= 16; s++) {
+      const x = (1000 / 16) * s;
+      const y = fy + Math.sin(x * 0.03 + i + t * 0.5) * (0.3 + i * 0.1);
+      dstr += (s === 0 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1) + " ";
+    }
+    lines.push(`<path d="${dstr}" fill="none" stroke="var(--line)" stroke-width="0.6" opacity="${op.toFixed(2)}" vector-effect="non-scaling-stroke"/>`);
+  }
+  document.getElementById("farwater-layer").innerHTML = lines.join("");
+}
+
+//──────────────────────────────────────────────────────────────────
+// Mountains — filled silhouettes (no clip-path, so the approach
+// transform scales them cleanly) with ridgelines, snow strokes near the
+// peaks, and a few interior gully strokes. Two identical instances feed
+// the crossfade treadmill.
+//──────────────────────────────────────────────────────────────────
+const MTN_L = "M -40 432 L 70 250 L 152 120 L 240 250 L 330 340 L 410 432 Z";
+const MTN_R = "M 600 432 L 690 250 L 802 150 L 905 70 L 992 250 L 1040 432 Z";
+const MID_PEAKS = "M 415 432 L 470 330 L 525 432 Z M 545 432 L 612 300 L 678 432 Z";
+
+function mountainSVG() {
+  let g = "";
+  // distant mid peaks (faint, sit furthest back)
+  g += `<path d="${MID_PEAKS}" fill="rgba(212,192,140,0.05)" stroke="var(--line-faint)" stroke-width="0.8" vector-effect="non-scaling-stroke"/>`;
+  // two main massifs
+  for (const [d, snow, gull] of [
+      [MTN_L, "M 96 240 L 152 120 L 212 240", [[152,124],[176,170],[128,175]]],
+      [MTN_R, "M 850 200 L 905 70 L 958 215", [[905,90],[936,150],[872,150]]] ]) {
+    g += `<path d="${d}" fill="url(#mtnFill)" stroke="var(--line)" stroke-width="1.3" vector-effect="non-scaling-stroke"/>`;
+    // snow cap
+    g += `<path d="${snow}" fill="none" stroke="#efe6cf" stroke-width="1.1" opacity="0.6" vector-effect="non-scaling-stroke"/>`;
+    // interior gully strokes (kept short so they read inside the silhouette)
+    for (const [gx, gy] of gull) {
+      g += `<path d="M ${gx} ${gy} L ${(gx - 6).toFixed(0)} ${(gy + 90).toFixed(0)}" fill="none" stroke="var(--line)" stroke-width="0.6" opacity="0.18" vector-effect="non-scaling-stroke"/>`;
+    }
+  }
+  return g;
+}
+function buildMountains() {
+  document.getElementById("mtn").innerHTML = mountainSVG();
+}
+
+//──────────────────────────────────────────────────────────────────
+// City — wireframe spires on the far shore, tallest at centre. Faint
+// reflections sit just below the horizon (they scale with the city, so
+// they grow on approach too). Two instances for the treadmill.
+//──────────────────────────────────────────────────────────────────
+function citySVG() {
+  const baseY = HORIZON_Y;
+  const x0 = 248, x1 = 752, N = 30;
+  let b = "", refl = "";
+  for (let i = 0; i < N; i++) {
+    const seed = rng(i * 13 + 2);
+    const w = 6 + seed * 15;
+    const cx = x0 + (x1 - x0) * (i / (N - 1)) + (rng(i * 7) - 0.5) * 7;
+    const centreBias = 1 - Math.abs((i / (N - 1)) - 0.5) * 1.5;
+    const h = 22 + Math.max(0, centreBias) * 64 + seed * 42;
+    const x = cx - w / 2, topY = baseY - h;
+    b += `<rect x="${x.toFixed(1)}" y="${topY.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="var(--line)" stroke-width="0.9" opacity="0.8" vector-effect="non-scaling-stroke"/>`;
+    if (seed > 0.6) b += `<path d="M ${x.toFixed(1)} ${topY.toFixed(1)} L ${cx.toFixed(1)} ${(topY - w * 0.9).toFixed(1)} L ${(x + w).toFixed(1)} ${topY.toFixed(1)}" fill="none" stroke="var(--line)" stroke-width="0.8" opacity="0.68" vector-effect="non-scaling-stroke"/>`;
+    refl += `<line x1="${cx.toFixed(1)}" y1="${baseY}" x2="${cx.toFixed(1)}" y2="${(baseY + Math.min(30, h * 0.42)).toFixed(1)}" stroke="var(--line)" stroke-width="${(w * 0.5).toFixed(1)}" opacity="0.045" vector-effect="non-scaling-stroke"/>`;
+  }
+  // central landmark obelisk (accent)
+  const ox = 500;
+  b += `<rect x="${ox - 9}" y="${baseY - 150}" width="18" height="150" fill="none" stroke="var(--accent)" stroke-width="1.1" opacity="0.9" vector-effect="non-scaling-stroke"/>`;
+  b += `<path d="M ${ox - 9} ${baseY - 150} L ${ox} ${baseY - 178} L ${ox + 9} ${baseY - 150}" fill="none" stroke="var(--accent)" stroke-width="1" opacity="0.85" vector-effect="non-scaling-stroke"/>`;
+  refl += `<line x1="${ox}" y1="${baseY}" x2="${ox}" y2="${baseY + 38}" stroke="var(--accent)" stroke-width="9" opacity="0.06" vector-effect="non-scaling-stroke"/>`;
+  return refl + b;   // reflections behind buildings
+}
+function buildCity() {
+  document.getElementById("city").innerHTML = citySVG();
+}
+
+//──────────────────────────────────────────────────────────────────
+// Clouds — slow horizontal drift inside the sky dome. Effectively at
+// infinity, so they barely approach (negligible parallax); they just
+// slide and wrap.
+//──────────────────────────────────────────────────────────────────
+const CLOUDS = [];
+function buildClouds() {
+  for (let i = 0; i < 8; i++) {
+    CLOUDS.push({ y: 36 + rng(i * 5) * 250, w: 130 + rng(i * 9) * 240, x: rng(i * 3) * 1000,
+                  sp: 1.6 + rng(i * 11) * 4, op: 0.04 + rng(i * 2) * 0.07 });
+  }
+}
+function drawClouds(t) {
+  let g = "";
+  for (const c of CLOUDS) {
+    let x = (c.x - t * c.sp) % (1000 + c.w);
+    if (x < -c.w) x += 1000 + c.w;
+    let dstr = "";
+    for (let s = 0; s <= 14; s++) {
+      const px = x + c.w * (s / 14);
+      const py = c.y + Math.sin(s * 0.9 + c.x) * 4;
+      dstr += (s === 0 ? "M" : "L") + px.toFixed(1) + "," + py.toFixed(1) + " ";
+    }
+    g += `<path d="${dstr}" fill="none" stroke="var(--line)" stroke-width="0.7" opacity="${c.op.toFixed(2)}" vector-effect="non-scaling-stroke"/>`;
+  }
+  document.getElementById("cloud-layer").innerHTML = g;
+}
+
+//──────────────────────────────────────────────────────────────────
+// Readout
+//──────────────────────────────────────────────────────────────────
+function updateReadout(crestCount) {
+  const dNear = nearWaterDepth();
+  const dMtn  = P.mtnMiles * M_PER_MILE;
+  const near  = parallaxSpeed(P.h, dNear);
+  const mid   = parallaxSpeed(P.h, 600);
+  const city  = parallaxSpeed(H_CITY, D_CITY);
+  const mtn   = parallaxSpeed(H_MTN, dMtn);
+  const ratio = mtn > 0 ? near / mtn : 0;
+  const set = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+  set("r-dn", Math.round(dNear));
+  set("r-near", near.toFixed(0) + " px/s");
+  set("r-mid", mid.toFixed(1) + " px/s");
+  set("r-city", city.toFixed(1) + " px/s");
+  set("r-mtn", mtn.toFixed(1) + " px/s");
+  set("r-ratio", "×" + (ratio >= 100 ? Math.round(ratio) : ratio.toFixed(0)));
+  set("r-crests", crestCount);
+  const cel = Math.sqrt(9.81 * P.lambda / (2 * Math.PI));
+  set("r-note", `At ${P.v} m/s the camera outruns the swell (celerity ${cel.toFixed(1)} m/s) by ${P.v>0?(P.v/cel).toFixed(0):'0'}×, so the wave field reads as pure streaming. Over one ${(LEG/Math.max(P.v,1)).toFixed(1)} s approach the city swells to ~${(D_CITY/(D_CITY-LEG)).toFixed(2)}× and the mountains only ~${((P.mtnMiles*M_PER_MILE)/((P.mtnMiles*M_PER_MILE)-LEG)).toFixed(2)}× — the nearer thing grows faster.`);
+  document.getElementById("hud").innerHTML = `ALT <b>${P.h} m</b><br>SPD <b>${P.v} m/s</b><br>≈ <b>${(P.v*3.6).toFixed(0)} km/h</b>`;
+  document.getElementById("bearing").textContent = `FLYING FORWARD · ALT ${P.h} m`;
+}
+
+//──────────────────────────────────────────────────────────────────
+// Main loop
+//──────────────────────────────────────────────────────────────────
+let t = 0, last = performance.now(), paused = false, raf = null;
+function renderFrame(t) {
+  const totalDist = P.v * t;                 // metres travelled along +Y
+  drawClouds(t);
+
+  // far layers grow monotonically; they share one leg so they reset together
+  const city = approachState(D_CITY, totalDist);
+  const mtn  = approachState(P.mtnMiles * M_PER_MILE, totalDist);
+  const mask = city.mask;                    // identical phase ⇒ identical mask
+
+  const mEl = document.getElementById("mtn");
+  const cEl = document.getElementById("city");
+  mEl.setAttribute("transform", tfAbout(mtn.scale));
+  cEl.setAttribute("transform", tfAbout(city.scale));
+  // dim the distance harder as the mist swells, so even the tall mountain
+  // peaks (which rise above the mist band) fade out before the reset
+  const farOp = (1 - 0.82 * mask).toFixed(3);
+  mEl.setAttribute("opacity", farOp);
+  cEl.setAttribute("opacity", farOp);
+  document.getElementById("mist-veil").setAttribute("opacity", (0.72 * mask).toFixed(3));
+  document.getElementById("haze-band").setAttribute("opacity", (0.5 + 0.45 * mask).toFixed(3));
+
+  // foreground keeps streaming straight through the mist (continuous forward cue)
+  buildFarWater(t);
+  const crestCount = buildCrests(totalDist, t);
+  updateReadout(crestCount);
+}
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!paused) t += dt;
+  renderFrame(t);
+  raf = requestAnimationFrame(frame);
+}
+
+//──────────────────────────────────────────────────────────────────
+// Controls
+//──────────────────────────────────────────────────────────────────
+function bind(id, key, fmt) {
+  const el = document.getElementById(id);
+  const out = document.getElementById(id.replace("c-", "o-"));
+  const apply = () => { P[key] = parseFloat(el.value); if (out) out.textContent = fmt(P[key]); };
+  el.addEventListener("input", apply); apply();
+}
+function init() {
+  buildClouds(); buildMountains(); buildCity();
+  bind("c-h",  "h",        v => v + " m");
+  bind("c-v",  "v",        v => v + " m/s");
+  bind("c-md", "mtnMiles", v => v.toFixed(1) + " mi");
+  bind("c-l",  "lambda",   v => v.toFixed(1) + " m");
+  bind("c-a",  "amp",      v => v.toFixed(1) + " m");
+  document.getElementById("t-pause").addEventListener("click", (e) => {
+    paused = !paused; e.target.classList.toggle("active", paused); e.target.textContent = paused ? "Play" : "Pause";
+  });
+  document.getElementById("t-reset").addEventListener("click", () => {
+    P.h = 40; P.v = 120; P.mtnMiles = 3.6; P.lambda = 12; P.amp = 1.2; t = 0;
+    document.getElementById("c-h").value = 40; document.getElementById("c-v").value = 120;
+    document.getElementById("c-md").value = 3.6; document.getElementById("c-l").value = 12;
+    document.getElementById("c-a").value = 1.2;
+    ["c-h","c-v","c-md","c-l","c-a"].forEach(id => document.getElementById(id).dispatchEvent(new Event("input")));
+  });
+  raf = requestAnimationFrame(frame);
+}
+init();
+</script>
+</body>
+</html>

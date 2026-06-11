@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+.env*
+# spike scratch frames (results JSON in spikes/results/ IS committed — it is P0 evidence)
+spikes/.work/

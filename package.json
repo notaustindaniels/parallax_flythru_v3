@@ -1,0 +1,38 @@
+{
+  "name": "vectorflight",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22.11 <23"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "typecheck": "tsc --noEmit && pnpm -r run typecheck",
+    "test": "vitest run --passWithNoTests",
+    "spike:s1": "tsx spikes/s1-capture-throughput/run.ts",
+    "spike:s2": "tsx spikes/s2-filter-determinism/run.ts",
+    "spike:s3": "tsx spikes/s3-block-flow/run.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@types/node": "^22",
+    "eslint": "9.39.4",
+    "playwright": "1.60.0",
+    "prettier": "3.8.4",
+    "tsx": "4.22.4",
+    "typescript": "5.6.3",
+    "typescript-eslint": "8.61.0",
+    "vitest": "2.1.9"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "ffmpeg-static",
+      "esbuild"
+    ]
+  }
+}

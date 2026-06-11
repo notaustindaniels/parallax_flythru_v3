@@ -1,0 +1,19 @@
+{
+  "name": "@vectorflight/studio",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vectorflight/engine": "workspace:*",
+    "@vectorflight/renderer-svg": "workspace:*",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "vite": "6.4.3"
+  }
+}

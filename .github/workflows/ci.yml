@@ -1,0 +1,31 @@
+# CI stub (P0). Grows per phase: P3 adds the golden-frame determinism job
+# (render frames {0, 90, 225, 360, 449} twice -> SHA-256 equal + match committed
+# hashes, SPEC §8.5) and `vf verify` gate jobs keyed on exit codes (SPEC §6.3).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version read from package.json "packageManager"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: secret scan (SPEC §7 — high-entropy string grep)
+        run: |
+          if git grep -nIE "(api[_-]?key|secret|token|passwd|password)\s*[:=]\s*['\"][A-Za-z0-9+/_-]{24,}" \
+            -- ':!pnpm-lock.yaml' ':!docs/reference' ':!.github/workflows/ci.yml'; then
+            echo "::error::potential committed secret (see matches above)"
+            exit 1
+          fi

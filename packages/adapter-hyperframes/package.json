@@ -1,0 +1,7 @@
+{
+  "name": "@vectorflight/adapter-hyperframes",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Post-v1 (SPEC §11.1): thin wrapper exposing composition.html to HyperFrames' seekable-animation adapter. Version pinned at the adapter milestone. No code until then — the adapter is glue, not a port."
+}
