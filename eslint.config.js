@@ -87,7 +87,7 @@ export default tseslint.config(
   // (SPEC §2 — pure TS, usable verbatim from both node and the browser studio) ----
   {
     files: ['packages/engine/**/*.ts'],
-    ignores: ['packages/engine/**/*.test.ts'], // tests may import vitest
+    ignores: ['packages/engine/**/*.test.ts', 'packages/engine/test/**'], // tests may import vitest
     rules: {
       'no-restricted-imports': [
         'error',

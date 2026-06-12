@@ -43,8 +43,8 @@ vectorflight/
     style-guide.md        # token sheet, glow recipe, style gates (§5.6)
   packages/
     engine/               # pure TS: math, world, camera, flight, features, LOD, streaming, projection
-      src/math/           #   vec3.ts quat.ts rng.ts curvature.ts spline.ts
-      src/camera/         #   pose.ts projection-rectilinear.ts projection-equirect.ts mount.ts
+      src/math/           #   vec3.ts quat.ts rng.ts curvature.ts spline.ts wave.ts constants.ts
+      src/camera/         #   pose.ts projection.ts projection-rectilinear.ts projection-equirect.ts mount.ts
       src/flight/         #   flight-provider.ts path-provider.ts script-provider.ts jitter.ts
       src/world/          #   world.ts entity.ts streaming.ts painter-sort.ts lod.ts
       src/features/       #   ocean.ts city.ts mountain-ranges.ts sky-dome.ts registry.ts
@@ -71,7 +71,8 @@ vectorflight/
 ### 3.3 Coordinate & camera conventions (binding)
 
 - World: **+x east/right, +y forward/north, +z up**, meters, float64. Sea level z = 0. Camera spawns facing +y.
-- Attitude: **quaternion internally** (`Quat`); UI/JSON in degrees via Z-X′-Y″ (yaw→pitch→roll) extraction. Body quat (flight) ⊗ mount quat (camera rig) = camera quat.
+- Attitude: **quaternion internally** (`Quat`); UI/JSON in degrees via Z-X′-Y″ (yaw→pitch→roll) extraction. Body quat (flight) ⊗ mount quat (camera rig) = camera quat. Signs *(P1 amendment 2026-06-12 — these were blanks)*: **+yaw turns the nose from +y toward +x** (bearing sense, matching equirect θ = atan2(x, y) and room-studio2's θ0); **+pitch raises the nose/optical axis** (right-hand about body +x — the same sign §5.2 pins for mount tilt); **+roll drops the right wing** (right-hand about body +y). Intrinsic composition q = q_z(−yaw) ⊗ q_x(pitch) ⊗ q_y(roll); world→camera applies the conjugate. Unit-tested against room-studio2's `toCameraFrame` as oracle.
+- Physical constants *(P1 amendment 2026-06-12)*: **g = 9.81 m/s² exactly**, engine-wide (wave celerity §5.3, bank §5.2 — the measurements.md §C tables assume it).
 - Rectilinear projection (FOV panel): `u = W/2 + f·x_c/y_c`, `v = H/2 − f·z_c/y_c`, `f = (W/2)/tan(hfov/2)`; **straight lines stay straight** → segments render from endpoints. Near clip **0.4 m** (room-studio's, kept).
 - Equirect projection (panorama): θ = atan2(x, y), φ = atan2(z, √(x²+y²)); port room-studio's θ-unwrap, ±W triple-draw, pole sample-warp (POLE_R = 0.5 m), and CENTER_GAP = 0.001 verbatim — that code is correct.
 - `Projection` interface (§6.2) declares `preservesLines`; non-linear projections (equirect now, fisheye later) get adaptive sampling: **max(8, ceil(angularExtentDeg × 3)) samples, cap 240**.
@@ -121,7 +122,11 @@ interface FeatureGenerator {
 interface FlightProvider { poseAt(tS: number): { posM: Vec3; body: Quat; speedMps: number }; }
 interface Projection {
   preservesLines: boolean;
-  project(pCam: Vec3): { u: number; v: number } | null;    // null = behind/outside
+  project(pCam: Vec3): { u: number; v: number } | null;
+  // null = not projectable (P1 amendment 2026-06-12, was "behind/outside"):
+  // rectilinear — behind the near plane; equirect — exactly at the eye. Points
+  // outside the viewport still project; clipping is the renderer's job (SVG
+  // overflow, as in room-studio2).
 }
 ```
 
@@ -199,7 +204,7 @@ Dusk/golden-hour in the `stylized_svg_drone.mp4` language (curated families, fla
 
 ### 5.2 Flight & attitude
 
-- Path: **centripetal Catmull-Rom (α = 0.5)** through `flight.points` (no cusps/loops). Heading = path tangent; climb pitch = atan(dz/ds).
+- Path: **centripetal Catmull-Rom (α = 0.5)** through `flight.points` (no cusps/loops). Heading = path tangent; climb pitch = atan(dz/ds). Open ends *(P1 amendment 2026-06-12 — this was a blank)*: the point list is extended by **reflection phantoms** P₋₁ = 2P₀ − P₁ and P_n = 2P_{n−1} − P_{n−2}, so the spline spans every authored waypoint and the t = 0 heading is defined (duplication phantoms would zero it). Consecutive waypoints must be distinct — schema-enforced at validation; the engine throws.
 - Speed: piecewise-linear `speedProfile` with **smoothstep easing over ±0.5 s** at each key.
 - Traversal: position at time t is the spline point at arc length `s(t) = ∫₀ᵗ v(τ) dτ` — the eased speed profile integrated along the path by the fixed-dt stepper (§3.2). The spline may be longer than the flown distance `s(durationS)`; the excess is simply unflown. The converse — `∫₀^durationS v dt` exceeding total path arc length — is a **schema error (exit 2)**, rejected at scene validation before any frame renders.
 - Bank (derived, never authored): `tan φ = v²κ/g`, slew-limited **60°/s**, clamped **±55°**.

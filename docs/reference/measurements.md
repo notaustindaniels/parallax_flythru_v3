@@ -45,9 +45,11 @@ Each scene re-keys the entire palette. ≤6 clusters ≥80% coverage is the SPEC
 
 **Instability (what determinism must beat):** flat fills shimmer at per-pixel temporal
 σ ≈ 6.28 gray levels (scene 1 sky, f010–f050) and 3.51 (scene 2 sky); props redraw mid-shot
-(outbuilding roof re-proportions f009→f025; pole top morphs mailbox→birdhouse+2 birds;
-through-door tree changes foliage state f137→f161). These are generative-render artifacts; the
-engine's equivalents must measure σ ≈ 0 (codec noise only).
+(outbuilding roof re-proportions f009→f025; pole top morphs mailbox→birdhouse+2 birds). These
+are generative-render artifacts; the engine's equivalents must measure σ ≈ 0 (codec noise only).
+*Not* in this class: the through-door foliage change (f137→f161) is the tent doorway acting as a
+pre-composited portal onto scene 3 — the iris-wipe aperture transition noted under "Structure"
+above (both scene changes are fly-through aperture transitions), not a mid-shot redraw.
 
 ## B. Composition reference — `2_5D_Parallax_Depth_mapping.mp4`
 
