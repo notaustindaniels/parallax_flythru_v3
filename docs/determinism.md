@@ -17,9 +17,25 @@ changing any pinned build is a render-affecting change and triggers the golden-f
 | ffmpeg (via ffmpeg-static)   | 6.0 (ffmpeg-static 5.3.0, Apple clang 13.1.6 build) | `libx264 -pix_fmt yuv420p -crf 16 -preset slow` |
 | Dev machine (perf reference) | Apple M1, 8 cores, 16 GB, macOS 26.2                | W2 guardrail numbers are relative to this       |
 
-CI runs ubuntu; **golden hashes are produced on the dev machine's pinned Chromium**. Cross-OS
-hash portability is NOT assumed — CI's determinism job re-renders twice and compares run-to-run
-on its own platform, then against goldens only if the platform matches the goldens' platform tag.
+CI runs ubuntu; **golden hashes (frameHash) are produced on the dev machine's pinned Chromium**.
+Cross-OS frameHash portability is NOT assumed — CI's determinism job re-renders twice and compares
+run-to-run on its own platform, then against goldens only if the platform matches the goldens'
+platform tag. (An ubuntu-produced golden manifest is the planned way to let CI gate on goldens
+directly; until it exists, ubuntu CI gates on run-to-run determinism alone.)
+
+## Two hashes
+
+`vf hash` emits two per-frame hashes, named this way everywhere (SPEC §6.3, §6.4, §8.5):
+
+- **domHash** — SHA-256 of the canonical DOM serialization (what `window.vf.hash()` returns).
+  Browser-independent: a function of engine + renderer output only, not of rasterization.
+- **frameHash** — SHA-256 of the captured PNG bytes. Render-contract-dependent: the pinned
+  browser build, launch flags, and platform all participate.
+
+Golden manifests commit **frameHash**, tagged with the platform that produced them; run-to-run
+determinism (invariant 7) and golden comparison are frameHash checks. domHash rides along in
+every manifest as the diagnostic: a frameHash mismatch with matching domHash localizes the
+difference to rasterization rather than engine output.
 
 ## Render-contract browser flags
 
@@ -31,7 +47,8 @@ byte). Any flag change is render-affecting and triggers the ritual below.
 ## Golden-frame update ritual (SPEC §5, §8.5)
 
 Golden frames: indices **{0, 90, 225, 360, 449}** of the canonical scene(s); committed as
-SHA-256 hashes (a `vf hash` manifest) once P3 lands `vf hash`.
+**frameHash** entries in a platform-tagged `vf hash` manifest (domHash rides along — see
+"Two hashes" above) once P3 lands `vf hash`.
 
 To update a golden hash:
 

@@ -91,6 +91,7 @@ The "database" of this system is the **scene file**. Decisions below resolve eve
 | Panorama: warp cache vs re-render | **Re-render at reduced LOD on translation-dirty**, layer cadence §5.8 | rotation-invariance makes this cheap; warp caches drift |
 | Sim time: checkpoint vs re-step | **Re-step from t = 0** each run | 1,800 fixed steps is free; checkpoints are a determinism risk |
 | Schema validation home | **zod in CLI/studio; engine trusts validated input** | keeps core dep-free |
+| Crest motion: does the entity travel with the phase? | **Crest entity = fixed world row sampling the traveling phase** `cos(k(s − c·t))`; foam/cap/spray rendering is gated on local phase — drawn only when the row is near a crest | entity identity and world row never change → invariant 8 unaffected; stable IDs survive for LOD promotion and the harness's crest tracking |
 
 ### 4.2 Core types (authoritative signatures)
 
@@ -200,8 +201,9 @@ Dusk/golden-hour in the `stylized_svg_drone.mp4` language (curated families, fla
 
 - Path: **centripetal Catmull-Rom (α = 0.5)** through `flight.points` (no cusps/loops). Heading = path tangent; climb pitch = atan(dz/ds).
 - Speed: piecewise-linear `speedProfile` with **smoothstep easing over ±0.5 s** at each key.
+- Traversal: position at time t is the spline point at arc length `s(t) = ∫₀ᵗ v(τ) dτ` — the eased speed profile integrated along the path by the fixed-dt stepper (§3.2). The spline may be longer than the flown distance `s(durationS)`; the excess is simply unflown. The converse — `∫₀^durationS v dt` exceeding total path arc length — is a **schema error (exit 2)**, rejected at scene validation before any frame renders.
 - Bank (derived, never authored): `tan φ = v²κ/g`, slew-limited **60°/s**, clamped **±55°**.
-- Body pitch from thrust: `atan(a_forward/g)` low-passed **τ = 0.5 s**; camera mount tilt (+18° default) composes on top. `FIXED` mount = horizon rolls with body (FPV signature); `GIMBAL_LEVEL` = roll/pitch erased, yaw follows.
+- Body pitch from thrust: `atan(a_forward/g)` low-passed **τ = 0.5 s**; camera mount tilt (+18° default) composes on top. Mount tilt sign: **+tiltDeg pitches the camera optical axis UP from the body +y axis** (right-hand rotation about body +x, per §3.3) — the +18° default is FPV uptilt, countering the nose-down body pitch of forward acceleration. `FIXED` mount = horizon rolls with body (FPV signature); `GIMBAL_LEVEL` = roll/pitch erased, yaw follows.
 - Jitter: 2-octave value-noise on pitch/roll (amp 0.35°) and yaw (0.15°) at 3 Hz base, seeded from scene seed; applied to **body**, pre-mount.
 - Altitude floor: camera z clamped ≥ **0.5 m** above local water with a CLI warning (no underwater rendering in v1). No collision (PRD non-goal): paths through buildings render as pass-through; documented.
 
@@ -209,7 +211,7 @@ Dusk/golden-hour in the `stylized_svg_drone.mp4` language (curated families, fla
 
 - Swell rows perpendicular to `dirDeg`, spacing λ; **finite crest segments** of length U(2λ, 6λ) with gaps U(0.5λ, 2λ), all from keyed RNG. Crest vertical profile: `z = amp·cos(k(s − c·t))`, phase speed `c = √(gλ/2π)` (λ = 34 m → 7.29 m/s). Chop layer (λ = 5 m) exists in Z1 only.
 - Zones: **Z3 sheet** beyond 2,500 m — single filled polygon from (curved, dipped) horizon down, gradient `water.far → water.body`, optional sun-glint streak under sun azimuth. **Z2 field** 2,500→350 m — tier 0/1 crests. **Z1 detail** < 350 m — tier 2/3.
-- Streaming: frustum footprint on z = 0, expanded **15%**, → row/segment index window → pool checkout. Pool caps: **Z1 ≤ 150 entities, Z2 ≤ 400**; over budget drops farthest-first.
+- Streaming: frustum footprint on z = 0, expanded **15%**, → row/segment index window → pool checkout. Pool caps: **Z1 ≤ 150 entities, Z2 ≤ 400**; over budget drops farthest-first, ordered by **(distance, then entity id)** (§5.5 tie-break).
 
 ### 5.4 LOD tiers & "progressive reveal"
 
@@ -224,7 +226,7 @@ Every promotion **fades in over 0.4 s** (linear opacity). City windows ignite (T
 
 ### 5.5 Painter's order & occlusion
 
-Back→front: sky dome → mountain ranges (far→near) → Z3 sheet → city buildings (sorted by camera distance, **per-building**) → Z2 crests (far→near rows) → Z1 crests (far→near). Prisms draw silhouette + **backface-culled** wall faces (outward normal · view < 0). Binding world rule: **entities never interpenetrate** (buildings spaced ≥ 8 m; crest rows are disjoint by construction) — this keeps per-entity sort exact.
+Back→front: sky dome → mountain ranges (far→near) → Z3 sheet → city buildings (sorted by camera distance, **per-building**) → Z2 crests (far→near rows) → Z1 crests (far→near). Prisms draw silhouette + **backface-culled** wall faces (outward normal · view < 0). Binding world rule: **entities never interpenetrate** (buildings spaced ≥ 8 m; crest rows are disjoint by construction) — this keeps per-entity sort exact. Deterministic tie-break: every painter sort — and §5.3's farthest-first eviction — orders by **(distance, then entity id)**, so equal-distance entities can never reorder between runs or platforms.
 
 ### 5.6 Style execution
 
@@ -267,7 +269,7 @@ mountStudio(el: HTMLElement, world: World): { update(tS: number, dirty: DirtyFla
 vf render  <scene.json> --out out/name.mp4 [--fps 30] [--size 1920x1080] [--frames a..b] [--png-dir dir] [--keep-frames]
 vf preview <scene.json>                       # launches studio (Vite) with hot reload
 vf verify  <png-dir> --scene <scene.json>     # physics + style + determinism gates
-vf hash    <scene.json> --frames a..b         # per-frame SHA-256 manifest (determinism CI)
+vf hash    <scene.json> --frames a..b         # per-frame domHash + frameHash manifest (§6.4, §8.5)
 ```
 
 Exit codes: **0** ok · **2** schema invalid · **3** physics gate failed · **4** determinism failed · **5** perf ceiling breached · **6** style gate failed. Machine-readable report: `--json` emits `{gates:[{id, pass, measured, threshold}]}`.
@@ -281,11 +283,13 @@ window.vf = {
   ready: Promise<void>,
   frameCount(): number,
   seek(frame: number): Promise<void>,   // pure: identical DOM for identical (scene, frame)
-  hash(): Promise<string>               // canonical serialization SHA-256, for vf hash
+  hash(): Promise<string>               // domHash: canonical DOM serialization SHA-256
 }
 ```
 
 Our CLI drives this file via Playwright screenshots. **The HyperFrames adapter (post-v1) drives the exact same file** through its seekable-animation adapter — by design, the adapter is glue, not a port.
+
+**Two hashes, named this way everywhere:** **domHash** = SHA-256 of the canonical DOM serialization (what `window.vf.hash()` returns) — browser-independent, a function of engine + renderer output only; **frameHash** = SHA-256 of the captured PNG bytes — render-contract-dependent (pinned browser build, flags, platform; docs/determinism.md). `vf hash` emits both per frame; golden manifests commit **frameHash**, tagged with the producing platform (§8.5). Invariant 7 is a frameHash statement.
 
 ## 7. Security (proportionate, explicit)
 
@@ -303,7 +307,7 @@ Quat/Vec ops vs fixtures (attitude correctness is load-bearing for every invaria
 
 ### 8.2 Analytic property tests
 
-Flow-law: project ground points at two poses, compare angular rates to `v·h/(d²+h²)` ≤ 0.5% (invariant 1). Layer growth vs `D/(D−vΔt)` ≤ 1% using known landmark spans (invariant 6).
+Flow-law: project ground points at two poses, compare angular rates to `v·h/(d²+h²)` ≤ 0.5% (invariant 1) — sample points on the ground track: the formula is exact on-track only (off-track points add the lateral `f·X·v/d²` component). Layer growth vs `D/(D−vΔt)` ≤ 1% using known landmark spans (invariant 6).
 
 ### 8.3 Harness (`vf verify`, on real exported PNGs — pure TS, no native deps)
 
@@ -315,7 +319,7 @@ k-means ≤ 6 clusters ≥ 80% coverage · gradient count ≤ 2 · node count �
 
 ### 8.5 Determinism & golden frames
 
-CI renders frames {0, 90, 225, 360, 449} twice → SHA-256 equality (invariant 7) and comparison against committed golden hashes. Golden update ritual documented in `docs/determinism.md` (update requires a PR note naming the visual change).
+CI renders frames {0, 90, 225, 360, 449} twice → **frameHash** run-to-run equality on CI's own platform (invariant 7). Comparison against committed golden manifests — which commit **frameHash**, platform-tagged (§6.4) — runs only when CI's platform matches the manifest's tag; cross-OS frameHash portability is not assumed (docs/determinism.md). **domHash** rides along in every manifest as the diagnostic: a frameHash mismatch with matching domHash localizes the difference to rasterization, not engine output. Golden update ritual documented in `docs/determinism.md` (update requires a PR note naming the visual change).
 
 ### 8.6 Perf gate
 

@@ -6,6 +6,11 @@ accents). PRD M4 (blind check, median ≥ 4/5) is the final authority; the gates
 machine-checked subset (SPEC §8.4). Final hex values are a P7 grade-pass output (SPEC §11.3);
 the token **names** below are frozen.
 
+The stills corpus is committed (2026-06-12 review note — it was flagged as possibly missing;
+it is not): 8 frames at `docs/reference/style-stills/`, `still-01-cabin-establish` through
+`still-08-coast-final`, spanning all three reference scenes (cabin, plateau, coast). The M4
+blind check draws its reference set from these.
+
 ## Token sheet — harbor-dusk (initial values, SPEC §4.4)
 
 Source of truth: [`packages/scenes/harbor-dusk.palette.json`](../packages/scenes/harbor-dusk.palette.json).

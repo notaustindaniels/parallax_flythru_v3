@@ -93,7 +93,9 @@ proportional to off-axis distance. Zero lateral divergence = the anti-pattern's 
 
 **Horizon (refraction k = 0.13, R_eff ≈ 7,323 km):** distance `√(2·R_eff·h)` — h = 10 m →
 12.1 km; dip `√(2h/R_eff)` rad; hidden height of an object D beyond horizon:
-`(D − d_h)²/(2·R_eff)` — a sea-level base 48 km out at h = 10 m hides ~99 m (hull-down).
+`(D − d_h)²/(2·R_eff)` — a sea-level base 48 km out at h = 10 m hides ~88 m (hull-down).
+*(Erratum 2026-06-12: originally recorded as ~99 m; consistent R_eff = 7,323 km arithmetic —
+d_h = 12.1 km, (48 − 12.1)² / (2 · 7,323) km — gives ~88 m.)*
 
 **Coordinated bank:** `tan φ = v²κ/g` — 35 m/s around r = 120 m → 46°.
 

@@ -1,6 +1,10 @@
-# CI stub (P0). Grows per phase: P3 adds the golden-frame determinism job
-# (render frames {0, 90, 225, 360, 449} twice -> SHA-256 equal + match committed
-# hashes, SPEC §8.5) and `vf verify` gate jobs keyed on exit codes (SPEC §6.3).
+# CI stub (P0). Grows per phase: P3 adds the determinism job — render frames
+# {0, 90, 225, 360, 449} twice and compare frameHash run-to-run on CI's own
+# platform (SPEC §8.5); comparison against committed golden manifests (frameHash,
+# platform-tagged) only on platform-tag match. Today's goldens are dev-machine
+# (macOS) tagged, so ubuntu CI gates on run-to-run determinism until the planned
+# ubuntu golden manifest lands (docs/determinism.md). P3 also adds `vf verify`
+# gate jobs keyed on exit codes (SPEC §6.3).
 name: ci
 on:
   push:

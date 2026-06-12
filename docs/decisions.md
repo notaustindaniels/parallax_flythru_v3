@@ -71,14 +71,32 @@ contours, the statistical shape of real exported frames — sampled at exact flo
 binding on the invariant-2/3 implementation (P3/P6): an integer matcher's direction error
 is quantization-bounded by ~atan(0.5/|flow|), so **FOE radiality classification must only
 count blocks with measured |flow| ≥ 2 px** (and/or pick verify frame pairs so textured-
-block flow is ≥ ~3 px at 480p). With the 30° radial tolerance of invariant 2 that leaves
-≥ 3× margin over worst-case quantization error. Recording this here so the harness
-implementation inherits it instead of rediscovering it.
+block flow is ≥ ~3 px at 480p). At the |flow| ≥ 2 px gate the worst-case quantization
+bound is atan(0.5/2) ≈ 14.0°, so invariant 2's 30° radial tolerance holds a **~2.1×
+margin** (~3.2× when verify pairs are picked for ≥ 3 px flow). _Erratum 2026-06-12
+(external review): originally recorded as "≥ 3× margin" — that figure is the ≥ 3 px case,
+not the 2 px gate; the conclusion (matcher validated, gate adequate) stands._ Recording
+this here so the harness implementation inherits it instead of rediscovering it.
 
 ### P0 done signal (SPEC §9)
 
 Numbers above are in this file; **go/no-go on A1: GO. On A3: GO.** S3: GO. P1 (math core)
 is the next phase and was deliberately not started in this run.
+
+---
+
+## True-scale ruling — operator, 2026-06-12
+
+The world is **SI-true**: geometry, distances, altitudes, and speeds are real meters and
+seconds, projected honestly. There is **no reference-matched depth faking** — no warping of
+world scale, layer placement, or growth rates to reproduce the reference videos' implied
+(and physically impossible) scales; see measurements.md §B "implied scale" (≈132 m/s at a
+plausible 3 km city distance) and PRD §1.4 (depth-mapped footage embeds non-reusable scale
+lies). The measured reference growth ratios (city ×1.307, mountains ×1.16–1.20 over 5.34 s)
+are **composition calibration only**: they inform scene authoring (camera path, feature
+distances, the speed dial) and sanity-check invariant 6's arithmetic — they are never
+targets the renderer bends geometry to hit. Ruled by the operator, recorded 2026-06-12 with
+the external-review amendments of the same date.
 
 ---
 
