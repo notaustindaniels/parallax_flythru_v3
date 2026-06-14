@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>vectorflight composition</title>
+    <!-- Seekable Composition Contract host (SPEC §6.4). The SVG carries its own
+         width/height; #vf-root holds it at 1:1 with no margins so a screenshot of the
+         element is pixel-exact (frameHash). The export context pins deviceScaleFactor=1. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #000;
+      }
+      #vf-root {
+        line-height: 0;
+      }
+      #vf-root > svg {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="vf-root"></div>
+    <script type="module" src="./composition.js"></script>
+  </body>
+</html>

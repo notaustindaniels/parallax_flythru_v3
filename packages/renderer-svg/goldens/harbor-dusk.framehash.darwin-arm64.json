@@ -1,0 +1,19 @@
+{
+  "scene": "harbor-dusk",
+  "platform": "darwin-arm64",
+  "renderContract": "playwright 1.60.0 / chromium build 1223 (148.0.7778.96); default flags; crf16 yuv420p",
+  "size": "1920x1080",
+  "fps": 30,
+  "frames": [
+    {
+      "frame": 0,
+      "domHash": "e16e8b379ec136bc267360439a41f0f1787175f26aa747d2862b583d6ebad090",
+      "frameHash": "d004e05bc79b6b7043de6cddaf4390ce7811770ebc9e1e47d74fc6ee4ba88a67"
+    },
+    {
+      "frame": 90,
+      "domHash": "97010c0ea740ed6fd23cc97fecec5b7f402097df3cde581c68ec89b6468a2d52",
+      "frameHash": "8576f4d2116bdb8e3d72275fe3d3ae80a6e85df8cdcd180e9a437ee3617610b2"
+    }
+  ]
+}

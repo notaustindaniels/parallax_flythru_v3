@@ -5,7 +5,11 @@
 export {
   renderFrameSVG,
   COORD_DECIMALS,
+  OPACITY_DECIMALS,
+  OPACITY_SKIP_BELOW,
+  FULLY_OPAQUE_AT,
   STROKE_WIDTH_PX,
   DEFAULT_BACKGROUND_TOKEN,
   type RenderOpts,
 } from './render-frame';
+export { cullPaths, pathIntersectsViewport, CULL_MARGIN_PX } from './viewport-cull';

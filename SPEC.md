@@ -92,7 +92,7 @@ The "database" of this system is the **scene file**. Decisions below resolve eve
 | Panorama: warp cache vs re-render | **Re-render at reduced LOD on translation-dirty**, layer cadence §5.8 | rotation-invariance makes this cheap; warp caches drift |
 | Sim time: checkpoint vs re-step | **Re-step from t = 0** each run | 1,800 fixed steps is free; checkpoints are a determinism risk |
 | Schema validation home | **zod in CLI/studio; engine trusts validated input** | keeps core dep-free |
-| Crest motion: does the entity travel with the phase? | **Crest entity = fixed world row sampling the traveling phase** `cos(k(s − c·t))`; foam/cap/spray rendering is gated on local phase — drawn only when the row is near a crest | entity identity and world row never change → invariant 8 unaffected; stable IDs survive for LOD promotion and the harness's crest tracking |
+| Crest motion: does the entity travel with the phase? | **Crest entity = fixed world row sampling the traveling phase** `cos(k(s − c·t))`; foam/cap/spray rendering is gated on local phase — drawn only when the row is near a crest *(P3: rows pitched λ/SWELL_SUBDIV so the gate's lit band sweeps across fixed rows = traveling swell; gating realized as `animate(tS).opacity`, the renderer skips opacity < ε — §5.3)* | entity identity and world row never change → invariant 8 unaffected; stable IDs survive for LOD promotion and the harness's crest tracking |
 
 ### 4.2 Core types (authoritative signatures)
 
@@ -194,7 +194,7 @@ Dusk/golden-hour in the `stylized_svg_drone.mp4` language (curated families, fla
 ### 5.1 "Physics-correct" — the invariant list (scene-independent tolerances; W4 fires if a scene needs tuning)
 
 1. **Flow-law (analytic):** projected angular rate of ground points equals `v·h/(d² + h²)` within **0.5%** (computed by projecting, not by optical flow).
-2. **FOE radiality (empirical):** on two consecutive exported frames in forward flight, ≥ **90%** of textured sample blocks have flow within **30°** of radially-outward from the focus of expansion (block-matching flow, §8.3).
+2. **FOE radiality (empirical):** on two consecutive exported frames in forward flight, ≥ **90%** of textured sample blocks have flow within **30°** of radially-outward from the focus of expansion (block-matching flow, §8.3). **Applicability domain** *(operator ruling 2026-06-14, option A — docs/decisions.md)*: this gate presumes the textured blocks are **static world-pinned geometry** (so their flow is camera-induced), and **requires ≥ 400 such textured blocks**. It does **not** apply to **traveling-wave texture** (the animated ocean): an anisotropic crest/foam field triggers the aperture problem (block-matching reports the edge-normal, not radial flow), and the swell's phase velocity `c = √(gλ/2π)` moves the tracked pattern independent of the camera. **When the precondition is not met the gate emits a SKIP** *(a third state — not a pass, not a fail; it does not affect the exit code, §6.3)* **with a diagnostic**, and the physics is covered unconditionally by invariant 1 (analytic — it passes at 0.0032% on the P3 ocean slice). The gate **fires for real at P4**, when city + mountains add static textured geometry. Tolerances (30°, 90%, ≥ 400) are unchanged.
 3. **Backward look:** at yaw 180°, the same test passes with flow **convergent** to the anti-FOE.
 4. **Horizon:** rendered horizon row = eye-level row − dip(h), within **±1 px** at 1080p (calibration scene).
 5. **Roll exactness:** commanded roll ψ rotates the rendered horizon by ψ within **±0.1°**.
@@ -214,7 +214,7 @@ Dusk/golden-hour in the `stylized_svg_drone.mp4` language (curated families, fla
 
 ### 5.3 Ocean
 
-- Swell rows perpendicular to `dirDeg`, spacing λ; **finite crest segments** of length U(2λ, 6λ) with gaps U(0.5λ, 2λ), all from keyed RNG. Crest vertical profile: `z = amp·cos(k(s − c·t))`, phase speed `c = √(gλ/2π)` (λ = 34 m → 7.29 m/s). Chop layer (λ = 5 m) exists in Z1 only.
+- Swell rows perpendicular to `dirDeg`, **row pitch λ/SWELL_SUBDIV** *(P3 amendment 2026-06-14 — was "spacing λ"; one row per λ puts every row at the SAME phase, `cos(k(mλ−ct)) = cos(ωt) ∀m`, so the whole sea pulses in unison. Sub-λ rows carry a phase step, so the crest LOCUS sweeps across fixed rows — a real traveling swell. SWELL_SUBDIV = 4)*; **finite crest segments** of length U(2λ, 6λ) with gaps U(0.5λ, 2λ), all from keyed RNG. Crest vertical profile: `z = amp·cos(k(s − c·t))`, phase speed `c = √(gλ/2π)` (λ = 34 m → 7.29 m/s) — applied per fixed row by `Entity.animate(tS)` as `zLiftM`; the anchor sits at mean sea level (z = 0). Each crest's **opacity = (cos²(localPhase/2))^P** windows it to render only near the crest (the §4.1 "drawn when near a crest" mechanism; trough rows are dropped by the renderer, holding the §5.7 node budget). Chop layer (λ = 5 m) exists in Z1 only.
 - Zones: **Z3 sheet** beyond 2,500 m — single filled polygon from (curved, dipped) horizon down, gradient `water.far → water.body`, optional sun-glint streak under sun azimuth. **Z2 field** 2,500→350 m — tier 0/1 crests. **Z1 detail** < 350 m — tier 2/3.
 - Streaming: frustum footprint on z = 0, expanded **15%**, → row/segment index window → pool checkout. Pool caps: **Z1 ≤ 150 entities, Z2 ≤ 400**; over budget drops farthest-first, ordered by **(distance, then entity id)** (§5.5 tie-break).
 
@@ -256,7 +256,7 @@ On by default (operator ruling), toggleable. Equirect, 2:1, with the **true repr
 createWorld(spec: SceneSpec): World
 World.poseAt(tS: number): CameraPose                      // flight ⊗ mount ⊗ jitter
 World.visibleSet(pose: CameraPose, budget: Budget): Entity[]   // stream + cull + sort
-World.stepTo(tS: number): void                            // fixed-dt re-step (internal)
+World.stepTo(tS: number): void                            // fixed-dt re-step (internal); P3: the trajectory (s, bank, thrust-pitch) is prebuilt at createWorld, re-stepped from t=0 to durationS, so poseAt reads it directly and stepTo is a no-op against the cache
 registerFeature(gen: FeatureGenerator): void              // extension point (canyon, metro, …)
 project(prims: Prim[], pose: CameraPose, proj: Projection): ScreenPath[]
 ```
@@ -277,7 +277,7 @@ vf verify  <png-dir> --scene <scene.json>     # physics + style + determinism ga
 vf hash    <scene.json> --frames a..b         # per-frame domHash + frameHash manifest (§6.4, §8.5)
 ```
 
-Exit codes: **0** ok · **2** schema invalid · **3** physics gate failed · **4** determinism failed · **5** perf ceiling breached · **6** style gate failed. Machine-readable report: `--json` emits `{gates:[{id, pass, measured, threshold}]}`.
+Exit codes: **0** ok · **2** schema invalid · **3** physics gate failed · **4** determinism failed · **5** perf ceiling breached · **6** style gate failed. Machine-readable report: `--json` emits `{gates:[{id, pass, status, measured, threshold}]}`. Each gate has a **three-state** `status` *(P3 amendment 2026-06-14)*: `pass` · `fail` · `skip`. A **skip** means the gate's applicability precondition is not met on this scene (e.g. invariant 2 on ocean-only — §5.1/§8.3): it is **neither a pass nor a fail and does not change the exit code** (a run with only passes and skips exits 0). `pass` is the boolean `status === 'pass'`, retained for back-compat. Exit 3 fires only when some physics gate's status is `fail`.
 
 ### 6.4 Seekable Composition Contract (the export keystone)
 
@@ -318,6 +318,12 @@ Flow-law: project ground points at two poses, compare angular rates to `v·h/(d�
 
 Block-matching optical flow: 480p downscale, 16 px blocks, ±12 px search, ≥ 400 textured blocks (variance gate). Gates: FOE radiality (invariant 2), backward convergence (3). Calibration scenes (checked into `scenes/calibration/`): horizon-only → invariant 4; horizon at roll 12° → invariant 5 (least-squares line fit). **Spike S3 validates the block matcher itself** against synthetic translated frames before it gates anything.
 
+*P3 refinements (2026-06-14, operator-ratified option A), binding on the invariant-2/3 implementation — these scope WHICH blocks carry a reliable flow DIRECTION and WHEN the gate applies; they do not touch the 30°/90% tolerance:*
+- ***Applicability / skip:*** *the gate requires **static world-pinned textured geometry** and **≥ 400 textured blocks** from it. The harness keys this off `world.featureTypes` (the ACTIVE feature generators — what is actually rendered — not the authored `spec.features`): a world rendering only `ocean` has no static textured geometry, so the gate emits **`status: 'skip'`** (§6.3 — not pass, not fail) with a structural diagnostic. It activates at P4 when the city/mountain generators exist. A skip also fires if the chosen pair yields < 400 textured or too few reliable blocks (precondition unmet).*
+- *Pair selection: pick the consecutive pair whose median |flow| is in **[3, 10] px** (below ~2 px the integer matcher is quantization-bound — S3 erratum; beyond the ±12 px search it saturates). The verify run logs the per-pair medians scanned (no silent caps).*
+- *Radiality is classified only over **reliable** blocks: textured (variance ≥ 100) ∧ |flow| ≥ 2 px (S3 erratum) ∧ **2-D-structured** (gradient structure-tensor λ_min ≥ τ — on a 1-D edge the aperture problem makes the matcher report the edge-normal, not the true flow; this excludes those). ≥ 90% of reliable blocks within 30°.*
+- *PNG decode is pure-TS via node:zlib; **validated bit-exact against real Playwright screenshots** (PIN #2, `packages/export/scripts/validate-png-decoder.ts`) before the gate trusts it.*
+
 ### 8.4 Style gates (automated subset of "on-style")
 
 k-means ≤ 6 clusters ≥ 80% coverage · gradient count ≤ 2 · node count ≤ 1,500 · (human M4 blind check remains the final authority, per PRD).
@@ -337,7 +343,7 @@ Median of 30 consecutive frame renders ≤ 1.5 s (warn) / 4 s (fail, exit 5).
 | **P0** | Spikes S1–S3 (§10) | numbers in `docs/decisions.md`; go/no-go on A1/A3 |
 | **P1** | Math core (vec/quat/RNG/spline/projections/curvature) | §8.1 + §8.2 green |
 | **P2** | World kernel: entities, streaming, painter sort; static ocean frame via `renderFrameSVG` | golden frame #0 committed |
-| **P3** | Ocean feature (zones/tiers/animation) + PathProvider + stepper + minimal `vf render` | **THIN SLICE: 3 s ocean-only MP4; invariants 1, 2, 7 green** ← PRD leading signal (a); 30-vs-60 fps judder verdict recorded |
+| **P3** | Ocean feature (zones/tiers/animation) + PathProvider + stepper + minimal `vf render` | **THIN SLICE: 3 s ocean-only MP4; invariants 1, 7 green; invariant 2 structurally skipped on ocean-only (documented, fires at P4)** ← PRD leading signal (a); 30-vs-60 fps judder verdict recorded. *Met 2026-06-14: MP4 ✓ (0.139 s/frame), invariant 1 ✓ (0.0032%), invariant 7 ✓ (byte-identical re-render, {0,90} frameHash golden), judder verdict ✓ (30 fps adequate for the dolly). Invariant 2 (empirical FOE) emits `status:skip` on ocean-only per the §5.1/§8.3 applicability ruling (option A) — block-matching is structurally inapplicable to traveling-wave texture; the same flow physics is proven by invariant 1. Gate fires at P4 on city/mountains.* |
 | **P4** | Sky dome, atmosphere, mountains, city | full harbor-dusk frame passes style gates; invariant 6 green |
 | **P5** | Studio: FOV panel, panorama (on, §5.8), map/spline editor, parameter nodes, free look | operator edits path + palette live with hot reload |
 | **P6** | Export/harness hardening: full CLI, exit codes, perf pass | 15 s 1080p30 ≤ 30 min; `vf verify` all gates green |

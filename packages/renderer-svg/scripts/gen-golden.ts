@@ -41,7 +41,7 @@ const nodeCount = (svgA.match(/<(svg|defs|linearGradient|stop|rect|polygon|polyl
 mkdirSync(goldensDir, { recursive: true });
 writeFileSync(resolve(goldensDir, 'harbor-dusk.frame-0000.svg'), svgA, 'utf8');
 const manifest = {
-  note: 'P2 golden frame #0 — domHash only. frameHash manifest lands at P3 with `vf hash`/Playwright (docs/determinism.md). domHash is platform-independent (a function of engine+renderer output), so it carries no platform tag.',
+  note: 'P3 golden frame #0 — domHash of the ANIMATED ocean at t=0 (re-baked from P2: ocean is now the Model-3 traveling swell — sub-λ rows + animate(tS) lift/opacity; §5.3 amendment). domHash is platform-independent (engine+renderer output only), so it carries no platform tag. The frameHash (PNG bytes) golden is harbor-dusk.framehash.darwin-arm64.json, produced by `vf hash` (docs/determinism.md); this domHash rides along it as the rasterization-vs-engine diagnostic.',
   scene: spec.name,
   frame: 0,
   coordDecimals: COORD_DECIMALS,

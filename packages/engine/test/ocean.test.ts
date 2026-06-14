@@ -1,13 +1,15 @@
-// Ocean feature generator (SPEC §5.3, §4.1): determinism, crest identity/shape, the
-// t=0 phase lift, and zone bounds. This is the static-frame vehicle for the kernel.
+// Ocean feature generator (SPEC §5.3, §4.1): determinism, crest identity/shape,
+// zone bounds, and the Model 3 animation seam (sub-λ rows; animate(tS) lift+opacity).
 
 import { describe, expect, it } from 'vitest';
 import {
   OCEAN_SHEET_ID,
+  SWELL_SUBDIV,
   createOceanGenerator,
   degToRad,
   effectiveEarthRadiusM,
   vDist,
+  wavePeriodS,
   type Aabb2,
   type Entity,
   type LodContext,
@@ -18,6 +20,7 @@ import { harborLikeScene } from './scene-fixture';
 const oceanSpec = harborLikeScene().features[0] as OceanFeatureSpec;
 const LAMBDA_M = oceanSpec.swell.lambdaM;
 const AMP_M = oceanSpec.swell.ampM;
+const CHOP_AMP_M = oceanSpec.chop.ampM;
 const Z2_M = oceanSpec.zones.z2M;
 
 const lod: LodContext = {
@@ -34,7 +37,7 @@ const crestsOf = (es: Entity[]): Entity[] => es.filter((e) => e.id !== OCEAN_SHE
 const describeEntity = (e: Entity): string =>
   `${e.id}|${e.anchorM.x.toFixed(6)},${e.anchorM.y.toFixed(6)},${e.anchorM.z.toFixed(6)}|${e.boundRadiusM.toFixed(6)}|${e.tier}`;
 
-describe('createOceanGenerator (§5.3 static, t=0)', () => {
+describe('createOceanGenerator (§5.3 animated, Model 3)', () => {
   it('is deterministic: same spec + seed + region → identical entities', () => {
     const a = createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000);
     const b = createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000);
@@ -82,13 +85,61 @@ describe('createOceanGenerator (§5.3 static, t=0)', () => {
     }
   });
 
-  it('crest height at t=0 is the swell amplitude (rows sit at crests: amp·cos(2πm) = amp)', () => {
+  it('anchors all crest rows on the mean surface (z = 0); lift lives in animate (Model 3)', () => {
     const crests = crestsOf(
       createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000),
     );
-    for (const c of crests) {
-      expect(Math.abs(c.anchorM.z - AMP_M)).toBeLessThan(1e-9);
+    for (const c of crests) expect(c.anchorM.z).toBe(0);
+  });
+
+  it('rows are pitched λ/SWELL_SUBDIV — consecutive crest rows are not all in phase', () => {
+    const crests = crestsOf(
+      createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000),
+    );
+    const rows = new Set(crests.map((c) => Number(c.id.match(/row:(-?\d+)/)![1])));
+    // adjacent fixed rows exist (proving sub-λ pitch, not one row per λ)
+    const sorted = [...rows].sort((a, b) => a - b);
+    let adjacent = 0;
+    for (let i = 1; i < sorted.length; i++) if (sorted[i]! - sorted[i - 1]! === 1) adjacent++;
+    expect(adjacent).toBeGreaterThan(0);
+    expect(SWELL_SUBDIV).toBeGreaterThanOrEqual(2); // sub-λ ⇒ phase steps ⇒ travel
+  });
+
+  it('animate(tS) is present, deterministic, bounded, and opacity ∈ [0,1]', () => {
+    const crests = crestsOf(
+      createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000),
+    );
+    const maxLift = AMP_M + CHOP_AMP_M + 1e-9;
+    for (const c of crests.slice(0, 50)) {
+      expect(typeof c.animate).toBe('function');
+      for (const tS of [0, 0.37, 1.5, 2.9]) {
+        const a = c.animate!(tS);
+        expect(c.animate!(tS)).toEqual(a); // pure
+        expect(Math.abs(a.zLiftM!)).toBeLessThanOrEqual(maxLift);
+        expect(a.opacity!).toBeGreaterThanOrEqual(0);
+        expect(a.opacity!).toBeLessThanOrEqual(1);
+      }
     }
+  });
+
+  it('invariant 8: id, shape, and world row are fixed; animate never mutates them', () => {
+    const crest = crestsOf(
+      createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000),
+    )[0]!;
+    const snap = `${crest.id}|${crest.boundRadiusM}|${crest.anchorM.x},${crest.anchorM.y},${crest.anchorM.z}|${crest.tier}`;
+    for (const tS of [0, 0.5, 1.1, 2.0, 2.97]) crest.animate!(tS);
+    expect(`${crest.id}|${crest.boundRadiusM}|${crest.anchorM.x},${crest.anchorM.y},${crest.anchorM.z}|${crest.tier}`)
+      .toBe(snap);
+  });
+
+  it('the wave travels: a tracked row’s lift varies over a wave period', () => {
+    const crest = crestsOf(
+      createOceanGenerator(oceanSpec, 4117).entitiesInRegion(region, lod, 1000),
+    )[0]!;
+    const T = wavePeriodS(LAMBDA_M);
+    const lifts = [0, T / 4, T / 2, (3 * T) / 4].map((t) => crest.animate!(t).zLiftM!);
+    const spread = Math.max(...lifts) - Math.min(...lifts);
+    expect(spread).toBeGreaterThan(AMP_M); // the row rises and falls as the swell passes
   });
 
   it('is seed-sensitive: a different seed yields different crest geometry', () => {

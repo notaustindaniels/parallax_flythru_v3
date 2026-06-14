@@ -59,6 +59,21 @@ from scratch and require byte-equality before the golden is trusted. P3 adds the
 manifest (the PNG-bytes golden) for the full index set; this domHash golden then becomes the
 diagnostic that rides along.
 
+**P3 update (2026-06-14):** `vf hash` landed (Playwright + the §6.4 composition bundle).
+- `goldens/harbor-dusk.framehash.darwin-arm64.json` commits the **frameHash** for the 3 s subset
+  **{0, 90}** of the canonical set, platform-tagged `darwin-arm64` on the pinned Chromium build
+  1223 (148.0.7778.96). Invariant 7 verified: two independent full renders produced byte-identical
+  manifests. The remaining canonical indices {225, 360, 449} land at P4 (they need the full 15 s
+  scene; harbor-dusk renders ocean-only until the city/mountain/sky generators exist).
+- The frame-0 **domHash golden was re-baked** to `e16e8b37…` (from P2's `83824c1d…`). Named visual
+  change (ritual step 1): the ocean became the Model-3 traveling swell — sub-λ rows + `animate(tS)`
+  z-lift/opacity (SPEC §5.3 amendment), so frame #0 at t=0 now samples the animated field. Both
+  goldens were produced by a double-render byte-equality check.
+- New determinism guarantee enforced every `vf hash`: the **browser domHash == node domHash** cross-
+  check. The esbuild-bundled engine+renderer running in headless Chromium emits byte-identical
+  `renderFrameSVG` output to node — so the Seekable Composition Contract (§6.4) is render-contract-
+  faithful and the HyperFrames adapter can drive the same file. A mismatch exits 4.
+
 To update a golden hash:
 
 1. The PR must include a note **naming the visual change** that justifies the update

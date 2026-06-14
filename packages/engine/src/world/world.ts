@@ -12,10 +12,15 @@
 import type { SceneSpec, OceanFeatureSpec } from '../scene/scene-spec';
 import type { CameraPose } from '../camera/pose';
 import { cameraQuat } from '../camera/pose';
-import { qFromAxisAngle, qIdent, qRotate } from '../math/quat';
+import { qFromYawPitchRoll, qMul, qRotate } from '../math/quat';
 import { degToRad } from '../math/constants';
 import { effectiveEarthRadiusM } from '../math/curvature';
 import { vDist } from '../math/vec3';
+import type { FlightProvider } from '../flight/flight-provider';
+import { createPathFlightProvider } from '../flight/flight-provider';
+import type { JitterConfig } from '../flight/jitter';
+import { jitterAt } from '../flight/jitter';
+import { mountQuat } from '../camera/mount';
 import type { RectilinearProjection } from '../camera/projection-rectilinear';
 import { createRectilinearProjection } from '../camera/projection-rectilinear';
 import type { CurvatureParams } from '../camera/project';
@@ -33,8 +38,25 @@ export interface World {
   readonly projection: RectilinearProjection;
   /** Curvature params for projectPrims (§3.3); mirrors atmosphere.curvature. */
   readonly curvature: CurvatureParams;
-  /** Camera pose at time tS. P2: static spawn pose (flight ⊗ mount ⊗ jitter is P3). */
+  /** The path flight provider (§4.2): poseAt/speed/length — exposed for the harness's invariant-1 gate. */
+  readonly flight: FlightProvider;
+  /**
+   * Feature types with an ACTIVE generator — what the world actually RENDERS, not what
+   * the spec declares (createWorld skips feature types it has no generator for). P3:
+   * `['ocean']` even though harbor-dusk's spec also lists city/mountains (P4 generators).
+   * The harness keys invariant-2 applicability (§8.3) off this, not spec.features.
+   */
+  readonly featureTypes: readonly string[];
+  /** Altitude floor (m): camera z is clamped ≥ this (§5.2, 0.5 m above the max crest). */
+  readonly altitudeFloorM: number;
+  /** Camera pose at time tS = flight ⊗ jitter (pre-mount) ⊗ mount (§6.1, §5.2). */
   poseAt(tS: number): CameraPose;
+  /**
+   * Fixed-dt re-step to time tS (§6.1). The trajectory is precomputed from t = 0 to
+   * durationS at createWorld (re-step from t = 0, §3.2), so poseAt reads it directly;
+   * this exists to honor the §6.1 contract and is a no-op against the prebuilt table.
+   */
+  stepTo(tS: number): void;
   /** Streamed, culled, tiered, §5.3-capped, §5.5 painter-sorted (back→front) entities. */
   visibleSet(pose: CameraPose, budget: Budget): Entity[];
 }
@@ -49,7 +71,7 @@ export function createWorld(spec: SceneSpec): World {
   const hfovRad = degToRad(spec.camera.hfovDeg);
   const aspect = widthPx / heightPx;
   const tiltRad = degToRad(spec.camera.mount.tiltDeg);
-  const spawn = spec.flight.points[0]!;
+  const durationS = spec.render.durationS;
 
   const projection = createRectilinearProjection(widthPx, heightPx, hfovRad);
   const rEffM = effectiveEarthRadiusM(spec.atmosphere.curvature.refractionK);
@@ -58,19 +80,41 @@ export function createWorld(spec: SceneSpec): World {
   const oceanSpecs = spec.features.filter((f): f is OceanFeatureSpec => f.type === 'ocean');
   const features: FeatureGenerator[] = oceanSpecs.map((o) => createOceanGenerator(o, spec.seed));
   // City/mountain generators land at P4; createWorld silently skips feature types it
-  // has no generator for, so a full harbor-dusk scene renders ocean-only in P2.
+  // has no generator for, so a full harbor-dusk scene renders ocean-only here.
   // Z1/Z2 painter-layer boundary (the ocean caps crest generation at its own z2M).
   const z1M = oceanSpecs[0]?.zones.z1M ?? 350;
 
-  function poseAt(_tS: number): CameraPose {
-    void _tS; // static at P2; the flight provider + stepper supply t-dependence at P3.
-    return {
-      posM: { x: spawn.x, y: spawn.y, z: spawn.z },
-      body: qIdent(), // spawn faces +y, level (§3.3)
-      mount: qFromAxisAngle({ x: 1, y: 0, z: 0 }, tiltRad), // +tilt pitches optical axis UP (§5.2)
-      hfovRad,
-      aspect,
-    };
+  // ---- flight: build the path provider + fixed-dt trajectory (re-step from t = 0).
+  // PIN #3 lives inside createPathFlightProvider: the §5.2 over-length guard throws
+  // here, before the trajectory table is built (createWorld → CLI exit 2). ----
+  const flight = createPathFlightProvider(spec.flight.points, spec.flight.speedProfile, durationS);
+  const jitterConfig: JitterConfig = {
+    ampDeg: spec.flight.jitter.ampDeg,
+    yawAmpDeg: spec.flight.jitter.yawAmpDeg,
+    baseHz: spec.flight.jitter.baseHz,
+    octaves: spec.flight.jitter.octaves,
+    seed: spec.seed,
+  };
+  const mountMode = spec.camera.mount.mode;
+  // Altitude floor (§5.2): 0.5 m above the highest possible local water (swell + chop crest).
+  const maxCrestM = oceanSpecs.reduce((m, o) => Math.max(m, o.swell.ampM + o.chop.ampM), 0);
+  const altitudeFloorM = 0.5 + maxCrestM;
+
+  function poseAt(tS: number): CameraPose {
+    const f = flight.poseAt(tS);
+    // Jitter applied to the BODY, pre-mount (§5.2): body ⊗ jitterδ (jitter in body frame).
+    const j = jitterAt(jitterConfig, tS);
+    const body = qMul(f.body, qFromYawPitchRoll(j.yawRad, j.pitchRad, j.rollRad));
+    const mount = mountQuat(body, tiltRad, mountMode);
+    // Altitude floor: never let the eye sink below the surface (§5.2, no underwater v1).
+    const posM = { x: f.posM.x, y: f.posM.y, z: Math.max(f.posM.z, altitudeFloorM) };
+    return { posM, body, mount, hfovRad, aspect };
+  }
+
+  function stepTo(_tS: number): void {
+    // The trajectory is prebuilt to durationS at createWorld (re-step from t = 0, §3.2);
+    // poseAt reads it directly. Present to honor the §6.1 contract.
+    void _tS;
   }
 
   function layerOf(entity: Entity, distM: number): number {
@@ -118,10 +162,14 @@ export function createWorld(spec: SceneSpec): World {
 
   return {
     spec,
-    render: { widthPx, heightPx, fps: spec.render.fps, durationS: spec.render.durationS },
+    render: { widthPx, heightPx, fps: spec.render.fps, durationS },
     projection,
     curvature,
+    flight,
+    altitudeFloorM,
+    featureTypes: features.map((f) => f.type),
     poseAt,
+    stepTo,
     visibleSet,
   };
 }

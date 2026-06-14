@@ -1,17 +1,19 @@
-// Ocean feature generator (SPEC §5.3, §4.1). P2 builds the STATIC (t = 0) ocean: it
-// is the vehicle that exercises the world kernel (streaming, painter sort, LOD).
+// Ocean feature generator (SPEC §5.3, §4.1). The animated (Model 3) ocean: it is the
+// vehicle that exercises the world kernel (streaming, painter sort, LOD) and the P3
+// thin slice.
 //
-// Crest model (§4.1 resolved call): a crest entity is a FIXED WORLD ROW — a line of
-// constant swell phase, perpendicular to dirDeg, anchored at s = m·λ and never
-// moving. Its identity (`ocean/row:m/seg:j`) and seed-derived shape never change
-// (invariant 8). The vertical lift is the only time-dependent term, isolated to one
-// call: amp·cos(wavePhaseRad(s, tS, λ)). P2 evaluates it at tS = 0 (= amp at a
-// crest); P3 lifts that single call into Entity.animate(tS) — no restructuring.
+// Crest model (§4.1 resolved call + P3 §5.3 amendment): a crest entity is a FIXED
+// WORLD ROW — a line perpendicular to dirDeg, anchored at s = m·(λ/SWELL_SUBDIV) and
+// never moving. Its identity (`ocean/row:m/seg:j`), seed-derived shape, and world row
+// never change (invariant 8). Only z-lift and opacity vary with time, both in
+// Entity.animate(tS).
 //
-// NOTE (P3, not resolved here): rows anchored at s = m·λ are mutually in phase, so a
-// naive traveling sample animates them in unison. The §4.1 "foam gated on local
-// phase" mechanism that breaks that symmetry is an animation decision and is out of
-// P2 scope (this is a single static frame). The chop layer (§5.3, Z1 only) is P3 too.
+// Why sub-λ rows (P3): one row per λ would put every row at the SAME phase
+// (cos(k(mλ − ct)) = cos(ωt) ∀m) → the whole sea pulses in unison. Rows pitched
+// λ/SWELL_SUBDIV carry a phase step, so the crest LOCUS (where opacity peaks) sweeps
+// across fixed rows — a real traveling swell. Foam/cap/spray ride the same opacity
+// window, so they render "only when the row is near a crest" (§4.1). Trough rows
+// (opacity ≈ 0) are dropped by the renderer, holding the §5.7 node budget.
 //
 // Coordinate frame: bearing β = dirDeg → world dir dHat = (sinβ, cosβ); rows run
 // along perp = (cosβ, −sinβ). s = p·dHat (along travel), w = p·perp (along a row).
@@ -24,7 +26,7 @@ import { wavePhaseRad } from '../math/wave';
 import { horizonDistanceM } from '../math/curvature';
 import { randIn } from '../math/rng';
 import { NO_TIER, tierForRange } from '../world/lod';
-import type { Aabb2, Entity, FeatureGenerator, LodContext, Prim } from '../world/entity';
+import type { Aabb2, Entity, EntityAnim, FeatureGenerator, LodContext, Prim } from '../world/entity';
 import type { OceanFeatureSpec } from '../scene/scene-spec';
 
 /** Stable id of the single Z3 backdrop sheet entity (the world maps it to OCEAN_SHEET). */
@@ -39,6 +41,19 @@ const SHEET_NEAR_RANGE_M = 8;
 /** Defensive walk bound (never reached for spec-valid λ ≥ a few meters). */
 const MAX_SEGMENTS_PER_ROW = 512;
 
+/**
+ * Swell row subdivision (SPEC §5.3 amendment, P3): fixed rows pitched λ/SWELL_SUBDIV
+ * so consecutive rows carry a phase step and the crest locus travels across fixed
+ * rows. A single row per λ would make the whole sea pulse in unison (see header).
+ */
+export const SWELL_SUBDIV = 4;
+/**
+ * Crest opacity = (cos²(localPhase/2))^CREST_OPACITY_POWER — 1 at the crest, 0 at the
+ * trough. The traveling opacity band IS the visible wave; foam/cap/spray ride it. The
+ * power narrows the lit band so far fewer rows draw (node budget, §5.7).
+ */
+const CREST_OPACITY_POWER = 2;
+
 /** Build a styleToken the renderer reads as a 2-stop vertical gradient (§4.4 water sheet). */
 function gradientToken(topToken: string, bottomToken: string): string {
   return `gradient(${topToken},${bottomToken})`;
@@ -47,6 +62,9 @@ function gradientToken(topToken: string, bottomToken: string): string {
 export function createOceanGenerator(spec: OceanFeatureSpec, seed: number): FeatureGenerator {
   const lambdaM = spec.swell.lambdaM;
   const ampM = spec.swell.ampM;
+  const rowPitchM = lambdaM / SWELL_SUBDIV; // fixed-row pitch (P3 §5.3 amendment)
+  const chopLambdaM = spec.chop.lambdaM;
+  const chopAmpM = spec.chop.ampM;
   const z2M = spec.zones.z2M; // crests exist only within Z2; the Z1/Z2 split is the world's (layer) call
   const [segLoLam, segHiLam] = spec.swell.crestSegLambdas;
   const [gapLoLam, gapHiLam] = spec.swell.gapLambdas;
@@ -155,6 +173,20 @@ export function createOceanGenerator(spec: OceanFeatureSpec, seed: number): Feat
     };
   }
 
+  /**
+   * Per-frame wave animation for a crest row at along-travel coordinate sM (SPEC §5.3,
+   * §4.1). z-lift = swell amp·cos(k(s − c·t)) plus Z1-only chop (tier ≥ 2); opacity
+   * windows the row so it renders only near the traveling crest. PURE in tS — only
+   * z-lift and opacity vary, so invariant 8 (id/shape/world row fixed) holds.
+   */
+  function crestAnimate(sM: number, tier: number, tS: number): EntityAnim {
+    const phase = wavePhaseRad(sM, tS, lambdaM);
+    let zLiftM = ampM * Math.cos(phase);
+    if (tier >= 2) zLiftM += chopAmpM * Math.cos(wavePhaseRad(sM, tS, chopLambdaM)); // chop: Z1 only
+    const w = 0.5 * (1 + Math.cos(phase)); // cos²(phase/2) ∈ [0,1], 1 at crest, 0 at trough
+    return { zLiftM, opacity: w ** CREST_OPACITY_POWER };
+  }
+
   function entitiesInRegion(region: Aabb2, lod: LodContext, _budget: number): Entity[] {
     void _budget; // window + range bound the count; the world applies the §5.3 caps precisely.
     const out: Entity[] = [buildSheet(lod)];
@@ -173,8 +205,8 @@ export function createOceanGenerator(spec: OceanFeatureSpec, seed: number): Feat
     ];
     const sMinAabb = Math.min(...corners);
     const sMaxAabb = Math.max(...corners);
-    const mLo = Math.max(Math.floor(sMinAabb / lambdaM) - 1, Math.ceil((sCam - z2M) / lambdaM));
-    const mHi = Math.min(Math.ceil(sMaxAabb / lambdaM) + 1, Math.floor((sCam + z2M) / lambdaM));
+    const mLo = Math.max(Math.floor(sMinAabb / rowPitchM) - 1, Math.ceil((sCam - z2M) / rowPitchM));
+    const mHi = Math.min(Math.ceil(sMaxAabb / rowPitchM) + 1, Math.floor((sCam + z2M) / rowPitchM));
 
     const wCorners = [
       wOf(region.minX, region.minY),
@@ -186,7 +218,7 @@ export function createOceanGenerator(spec: OceanFeatureSpec, seed: number): Feat
     const wMaxAabb = Math.max(...wCorners);
 
     for (let m = mLo; m <= mHi; m++) {
-      const sM = m * lambdaM;
+      const sM = m * rowPitchM;
       const dPerp = sM - sCam;
       const radicand = z2M * z2M - dPerp * dPerp;
       if (radicand <= 0) continue; // row too far perpendicular to hold any crest < z2M
@@ -195,28 +227,28 @@ export function createOceanGenerator(spec: OceanFeatureSpec, seed: number): Feat
       const wWinHi = Math.min(wMaxAabb, wCam + halfW);
       if (wWinLo > wWinHi) continue;
 
-      // Crest height: amp·cos(k(s − c·t)) at t = 0 (= amp; rows sit at crests). The
-      // wave call is the P3 animation seam — pass tS there instead of 0.
-      const liftM = ampM * Math.cos(wavePhaseRad(sM, 0, lambdaM));
-
       const emit = (j: number, startW: number, lenM: number): void => {
         const wMid = startW + lenM / 2;
+        // Anchor sits on the mean surface (z = 0); the wave lift is applied per frame
+        // by animate(tS), so the world row never moves (invariant 8).
         const anchorM: Vec3 = {
           x: sM * dHat.x + wMid * perp.x,
           y: sM * dHat.y + wMid * perp.y,
-          z: liftM,
+          z: 0,
         };
         const rangeM = vDist(cam, anchorM);
         if (rangeM >= z2M) return; // Z3 sheet territory — no crest
         const tier = tierForRange(rangeM);
         if (tier === NO_TIER) return;
+        const t = tier as 0 | 1 | 2 | 3;
         out.push({
           id: `${keyPrefix}/row:${m}/seg:${j}`,
           featureId: 'ocean',
           anchorM,
           boundRadiusM: lenM / 2,
-          tier: tier as 0 | 1 | 2 | 3,
+          tier: t,
           build: buildCrest(lenM),
+          animate: (tS: number) => crestAnimate(sM, t, tS),
         });
       };
 

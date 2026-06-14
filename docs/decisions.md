@@ -124,7 +124,105 @@ the rollback is a renderer swap, not a rewrite:
 
 ---
 
-## Open verdict slots (named, awaiting their phase)
+## P3 results — 2026-06-14
 
-- **30 vs 60 fps judder** — decided empirically by the P3 thin slice's motion-cadence
-  test (SPEC §9 P3, §11.2); spec default stays 30 fps until that verdict lands here.
+Environment: Apple M1 (8 cores, 16 GB), macOS 26.2 · node 22.14.0 · Playwright 1.60.0 /
+Chromium 148.0.7778.96 (build 1223) · ffmpeg-static 5.3.0 · pnpm 9.15.9.
+
+### Thin slice exported · pipeline + determinism green
+
+`vf render harbor-dusk --frames 0..89 → out/ocean-thin.mp4` (3 s, 1920×1080@30, 90 frames,
+ocean-only — city/mountain generators are P4). The full pipeline runs end-to-end: scene →
+zod validation → engine (flight stepper + Model-3 ocean) → esbuild composition bundle →
+Playwright capture (pinned Chromium) → ffmpeg mux. **Capture 0.139 s/frame** — 29× inside
+the §5.7 4 s ceiling (consistent with S1's 0.084 s at 1,500 nodes; the ocean frame is 322
+nodes). The node↔browser **domHash cross-check passes** (`vf hash` asserts the esbuild
+bundle renders byte-identically to node), so the Seekable Composition Contract (§6.4) is
+sound for the HyperFrames adapter.
+
+Gate status against the §9 P3 done signal — **revised by the option-A ruling (below) to
+"invariants 1, 7 green; invariant 2 structurally skipped on ocean-only (documented, fires
+at P4)":**
+
+- **Invariant 1 (flow-law, analytic) — GREEN.** `vf verify` projects on-track ground points
+  at the scene's real operating point (v=42 m/s, h=11.2 m) and matches `v·h/(d²+h²)` to
+  **max rel err 0.0032%** (≪ 0.5%). The §8.2 engine property test also holds. This is the
+  decisive proof that the camera + projection optical-flow field is physically exact, and it
+  covers the ocean-phase physics unconditionally.
+- **Invariant 7 (determinism) — GREEN.** Two independent full renders of {0, 90} produced
+  byte-identical frameHash manifests; golden `harbor-dusk.framehash.darwin-arm64.json`
+  committed (domHash rides along, §8.5). domHash golden frame #0 re-baked for the animated
+  ocean (named change; ritual honored — double-render equality enforced in gen-golden.ts).
+- **Invariant 2 (FOE radiality, empirical) — SKIPPED on ocean-only (option A, ruled below).**
+  `vf verify` emits `status: 'skip'` with a structural diagnostic; exit 0. Tolerances (30°,
+  ≥90%, ≥400 textured blocks) untouched (CLAUDE.md rule 4). Fires for real at P4.
+
+### Invariant 2 (FOE radiality) on the animated ocean — RESOLVED: option A (operator, 2026-06-14)
+
+**Ruling:** invariant 2 gates only on scenes with **static world-pinned textured features**;
+on ocean-only it is structurally inapplicable and emits a **skip** (not pass, not fail — a
+third gate state with a reason). Invariant 1 covers the physics unconditionally. The gate's
+applicability domain is now explicit in SPEC §5.1/§8.3: it requires **≥ 400 textured blocks
+from static world-pinned geometry (not traveling-wave texture)**; when that precondition is
+unmet the gate logs a skip diagnostic. **P4 is where it fires for real** (city + mountains).
+
+Implementation: the harness keys applicability off `world.featureTypes` (the ACTIVE feature
+generators = what is actually rendered), not the authored `spec.features` — so harbor-dusk
+(whose spec declares city/mountains but whose P3 world renders ocean-only) skips cleanly on
+the structural reason, and the gate auto-activates when the P4 generators land. `vf verify`
+exit code is unaffected by a skip; only a `fail` yields exit 3.
+
+**Why the gate is inapplicable to the animated ocean — two structural reasons, neither a
+physics error nor fixable by scene tuning (the evidence behind the ruling):**
+
+1. **Aperture problem (anisotropic texture).** Ocean crests/foam are edge-like and nearly
+   parallel (one swell direction). On a 1-D edge, SAD block-matching recovers only the
+   edge-NORMAL flow component (the tangential component is unobservable), so the reported
+   direction is ~constant (the swell normal), not radial-from-FOE. A structure-tensor corner
+   gate (λ_min) was added to exclude edge-only blocks; even the strongest 2-D blocks
+   (λ_min ≥ 8000) measured **~30–40% radial** — foam caps are themselves elongated.
+2. **Traveling-wave phase velocity.** Model-3 crests travel at `c = √(gλ/2π) = 7.29 m/s`
+   (correct deep-water physics). Block-matching tracks the moving crest *pattern*, so the
+   measured flow is the wave's image motion, not the camera-induced flow the FOE test
+   assumes (it presumes static world texture). Raising camera speed to v=42 (wave ≈ 17%)
+   did not recover radiality — the flow stayed near-random (~30%) because (1) dominates.
+
+Evidence it is NOT a physics failure: invariant 1 (the SAME flow physics, computed
+analytically by projection over STATIC ground points) passes at 0.0032%; the anti-pattern's
+zero-lateral-divergence failure (`du/dt = f·X·v/d²`) is caught analytically there and in the
+§8.2 lateral-divergence test. The empirical block-matcher is the only thing that fails, and
+only because its input (animated anisotropic water) violates its preconditions. The matcher
+itself is sound (S3 GO on isotropic texture; PNG decoder PIN #2-validated bit-exact vs the
+browser; both unit-tested in packages/harness).
+
+**Resolution (operator, 2026-06-14): option A.** Invariant 2 gates only on scenes with static
+world-pinned textured features; on ocean-only it skips with a diagnostic (above). Options B
+(world-pinned foam — measurements §D records the anti-pattern got "foam pinned to world-X"
+right; render foam/glint at fixed world positions so the texture is camera-static while the
+swell still travels) and C (subtract the analytic wave phase flow before classification) were
+**considered and not taken** — both make invariant 2 pass on ocean but B is a Model-3 change
+and C is complex; A is sufficient because invariant 1 already proves the ocean-phase physics.
+B is recorded here as the natural path **if** a future scene needs an empirical ocean FOE check.
+
+The FOE harness (matcher, PNG decode, downscale, FOE/pair-selection/corner-gate, the
+|flow| ≥ 2 px erratum window, the static-geometry applicability check, three-state skip) is
+fully built and **auto-activates at P4** when the city/mountain generators add static texture.
+
+### 30-vs-60 fps judder verdict — RESOLVED (fills the open slot; SPEC §11.2)
+
+Rendered harbor-dusk's 3 s clip at 30 fps (90 frames) and 60 fps (180 frames); measured
+inter-frame screen motion (480p block-flow, `packages/export/scripts/judder.ts`) and the
+analytic peak flow.
+
+- harbor-dusk is a forward **dolly / push-in with near-zero yaw rate** — there is no fast
+  *pan*, which is the motion §11.2/PRD-Q1 worried would strobe. So the judder concern does
+  not bind on this scene.
+- The fast content is the **near-field water** at the bottom edge: analytic peak
+  `f·v/(2h) ≈ 80 px/frame` at d = h = 12 m, 1080p, 30 fps → ~40 px/frame at 60 fps (a clean
+  2×). The block-matcher saturates (>±12 px search) on this near band at *both* rates, so the
+  measured peak ratio compresses to 1.13× — a measurement artifact, not the true cadence.
+  The mid-field the eye tracks moves ~2.3 px/frame@30 → ~1.1@60.
+- **Verdict: 30 fps is adequate for the harbor-dusk dolly composition** — no strobing on the
+  tracked mid-field; the fast near edge is a motion-blur consideration, not judder. **SPEC
+  default stays 30 fps** (§11.2 unchanged); `--fps 60` is supported and advisable for scenes
+  with fast yaw pans or a prominent very-near foreground. Re-evaluate when such a scene exists.

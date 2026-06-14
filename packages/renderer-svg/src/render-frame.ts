@@ -26,9 +26,20 @@ import {
   placePrims,
   projectPrims,
 } from '@vectorflight/engine';
+import { cullPaths } from './viewport-cull';
 
 /** Coordinate precision for every emitted path point. FROZEN — frozen by the golden. */
 export const COORD_DECIMALS = 3;
+
+/** Decimal places for opacity attributes (animation fade). Frozen by the golden. */
+export const OPACITY_DECIMALS = 3;
+
+/** Entities animating below this opacity are skipped entirely (no SVG nodes) — the
+ *  trough rows of the traveling swell (§5.3 Model 3) and the §5.7 node-budget lever. */
+export const OPACITY_SKIP_BELOW = 0.04;
+
+/** At/above this opacity no opacity attribute is emitted (treated as fully opaque). */
+export const FULLY_OPAQUE_AT = 0.9995;
 
 /** Stroke width (px) for crest/foam polylines. Frozen by the golden. */
 export const STROKE_WIDTH_PX = 1.6;
@@ -61,6 +72,13 @@ function resolveColor(token: string, palette: Record<string, string>): string {
 
 function pointsAttr(pts: ScreenPath['pts']): string {
   return pts.map((p) => `${fmt(p.u)},${fmt(p.v)}`).join(' ');
+}
+
+/** The opacity attribute fragment for fill/stroke (empty when effectively opaque). */
+function opacityAttrs(opacity: number): { fill: string; stroke: string } {
+  if (opacity >= FULLY_OPAQUE_AT) return { fill: '', stroke: '' };
+  const v = opacity.toFixed(OPACITY_DECIMALS);
+  return { fill: ` fill-opacity="${v}"`, stroke: ` stroke-opacity="${v}"` };
 }
 
 /**
@@ -100,14 +118,32 @@ export function renderFrameSVG(world: World, frameIndex: number, opts: RenderOpt
 
   const body: string[] = [];
   for (const entity of entities) {
-    const worldPrims = placePrims(entity.build(entity.tier), entity.anchorM);
-    for (const path of projectPrims(worldPrims, pose, world.projection, world.curvature)) {
+    // Per-frame animation (§4.2): z-lift folds into the placement anchor; opacity fades
+    // the whole entity. Trough rows (opacity < OPACITY_SKIP_BELOW) emit nothing.
+    const anim = entity.animate?.(tS);
+    const opacity = anim?.opacity ?? 1;
+    if (opacity < OPACITY_SKIP_BELOW) continue;
+    const zLiftM = anim?.zLiftM ?? 0;
+    const anchor =
+      zLiftM === 0
+        ? entity.anchorM
+        : { x: entity.anchorM.x, y: entity.anchorM.y, z: entity.anchorM.z + zLiftM };
+    const worldPrims = placePrims(entity.build(entity.tier), anchor);
+    const op = opacityAttrs(opacity);
+    const paths = cullPaths(
+      projectPrims(worldPrims, pose, world.projection, world.curvature),
+      wPx,
+      hPx,
+    );
+    for (const path of paths) {
       if (path.kind === 'polygon') {
-        body.push(`<polygon points="${pointsAttr(path.pts)}" fill="${fillFor(path.styleToken)}"/>`);
+        body.push(
+          `<polygon points="${pointsAttr(path.pts)}" fill="${fillFor(path.styleToken)}"${op.fill}/>`,
+        );
       } else {
         body.push(
           `<polyline points="${pointsAttr(path.pts)}" fill="none" ` +
-            `stroke="${fillFor(path.styleToken)}" stroke-width="${STROKE_WIDTH_PX}"/>`,
+            `stroke="${fillFor(path.styleToken)}" stroke-width="${STROKE_WIDTH_PX}"${op.stroke}/>`,
         );
       }
     }

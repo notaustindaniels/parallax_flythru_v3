@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_BUDGET,
   OCEAN_SHEET_ID,
-  cameraQuat,
   createWorld,
   degToRad,
   groundFootprintAabb,
@@ -17,7 +16,7 @@ import {
 import { expectClose } from './helpers';
 import { harborLikeScene } from './scene-fixture';
 
-describe('createWorld — schema boundary (deg → rad) and static spawn pose', () => {
+describe('createWorld — schema boundary (deg → rad) and flight pose (§6.1)', () => {
   const world = createWorld(harborLikeScene());
 
   it('converts hfovDeg and aspect at ingest', () => {
@@ -26,22 +25,34 @@ describe('createWorld — schema boundary (deg → rad) and static spawn pose', 
     expectClose(pose.aspect, 1920 / 1080, 1e-12);
   });
 
-  it('spawns at flight.points[0], level, facing +y', () => {
+  it('spawns at flight.points[0], heading roughly +y/north', () => {
     const pose = world.poseAt(0);
-    expect(pose.posM).toEqual({ x: 0, y: 0, z: 12 });
-    expect(pose.body).toEqual({ w: 1, x: 0, y: 0, z: 0 });
+    expectClose(pose.posM.x, 0, 1e-6);
+    expectClose(pose.posM.y, 0, 1e-6);
+    expectClose(pose.posM.z, 12, 1e-6);
+    // initial path bearing is a few degrees east of +y; jitter adds < 0.2°
+    const fwdBody = qRotate(world.flight.poseAt(0).body, { x: 0, y: 1, z: 0 });
+    expect(Math.atan2(fwdBody.x, fwdBody.y)).toBeLessThan(degToRad(10));
+    expect(fwdBody.y).toBeGreaterThan(0.9); // still mostly +y
   });
 
-  it('mount tilt pitches the optical axis UP by tiltDeg (§5.2 sign)', () => {
+  it('mount tilt pitches the optical axis UP by tiltDeg in the body frame (§5.2 sign)', () => {
     const pose = world.poseAt(0);
-    const fwd = qRotate(cameraQuat(pose), { x: 0, y: 1, z: 0 }); // camera +y in world
-    expectClose(fwd.x, 0, 1e-12);
-    expectClose(fwd.y, Math.cos(degToRad(18)), 1e-12);
-    expectClose(fwd.z, Math.sin(degToRad(18)), 1e-12); // +z ⇒ up
+    const axisInBody = qRotate(pose.mount, { x: 0, y: 1, z: 0 }); // camera +y relative to body
+    expectClose(axisInBody.x, 0, 1e-9);
+    expectClose(axisInBody.y, Math.cos(degToRad(18)), 1e-9);
+    expectClose(axisInBody.z, Math.sin(degToRad(18)), 1e-9); // +z ⇒ up
   });
 
-  it('poseAt is static across t in P2 (no flight provider yet)', () => {
-    expect(world.poseAt(5)).toEqual(world.poseAt(0));
+  it('poseAt advances along the path and is deterministic', () => {
+    expect(world.poseAt(2)).toEqual(world.poseAt(2)); // pure
+    const moved = vDist(world.poseAt(0).posM, world.poseAt(2).posM);
+    expect(moved).toBeGreaterThan(40); // ~2 s at 24→ m/s ⇒ tens of metres flown
+  });
+
+  it('exposes the flight provider and a sane altitude floor (§5.2)', () => {
+    expect(world.flight.pathLengthM).toBeGreaterThan(world.flight.totalFlownM);
+    expectClose(world.altitudeFloorM, 0.5 + 0.9 + 0.18, 1e-9); // 0.5 + swell + chop crest
   });
 });
 
