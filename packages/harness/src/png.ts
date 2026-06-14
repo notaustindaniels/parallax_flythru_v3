@@ -14,6 +14,12 @@ export interface GrayImage {
   gray: Uint8Array; // row-major, width*height
 }
 
+export interface RgbImage {
+  width: number;
+  height: number;
+  rgb: Uint8Array; // row-major, width*height*3
+}
+
 const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
 
 function paeth(a: number, b: number, c: number): number {
@@ -25,7 +31,15 @@ function paeth(a: number, b: number, c: number): number {
   return pb <= pc ? b : c;
 }
 
-export function decodePngToGray(buf: Buffer): GrayImage {
+interface ReconImage {
+  width: number;
+  height: number;
+  channels: number; // 3 (RGB) or 4 (RGBA)
+  recon: Uint8Array; // unfiltered, row-major, width*height*channels
+}
+
+/** Decode a PNG to its unfiltered RGB(A) sample buffer (shared by gray/RGB decoders). */
+function decodePngRecon(buf: Buffer): ReconImage {
   for (let i = 0; i < 8; i++)
     if (buf[i] !== PNG_SIG[i]) throw new Error('decodePng: not a PNG (bad signature)');
 
@@ -80,22 +94,52 @@ export function decodePngToGray(buf: Buffer): GrayImage {
       const c = x >= channels && y > 0 ? recon[prevRow + x - channels]! : 0;
       let v: number;
       switch (filter) {
-        case 0: v = f; break;
-        case 1: v = f + a; break;
-        case 2: v = f + b; break;
-        case 3: v = f + ((a + b) >> 1); break;
-        case 4: v = f + paeth(a, b, c); break;
-        default: throw new Error(`decodePng: bad filter type ${filter} at row ${y}`);
+        case 0:
+          v = f;
+          break;
+        case 1:
+          v = f + a;
+          break;
+        case 2:
+          v = f + b;
+          break;
+        case 3:
+          v = f + ((a + b) >> 1);
+          break;
+        case 4:
+          v = f + paeth(a, b, c);
+          break;
+        default:
+          throw new Error(`decodePng: bad filter type ${filter} at row ${y}`);
       }
       recon[outRow + x] = v & 0xff;
     }
   }
 
+  return { width, height, channels, recon };
+}
+
+/** Decode a PNG to 8-bit luma (0.299R + 0.587G + 0.114B). */
+export function decodePngToGray(buf: Buffer): GrayImage {
+  const { width, height, channels, recon } = decodePngRecon(buf);
   const gray = new Uint8Array(width * height);
   for (let i = 0, p = 0; i < width * height; i++, p += channels) {
     gray[i] = Math.round(0.299 * recon[p]! + 0.587 * recon[p + 1]! + 0.114 * recon[p + 2]!);
   }
   return { width, height, gray };
+}
+
+/** Decode a PNG to packed RGB (alpha dropped) — for the §8.4 k-means style check. */
+export function decodePngToRgb(buf: Buffer): RgbImage {
+  const { width, height, channels, recon } = decodePngRecon(buf);
+  if (channels === 3) return { width, height, rgb: recon };
+  const rgb = new Uint8Array(width * height * 3);
+  for (let i = 0, s = 0, d = 0; i < width * height; i++, s += channels, d += 3) {
+    rgb[d] = recon[s]!;
+    rgb[d + 1] = recon[s + 1]!;
+    rgb[d + 2] = recon[s + 2]!;
+  }
+  return { width, height, rgb };
 }
 
 export function loadGrayPng(path: string): GrayImage {

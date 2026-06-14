@@ -73,17 +73,25 @@ describe('renderFrameSVG — coordinate precision is frozen and load-bearing', (
 });
 
 describe('renderFrameSVG — style-gate subset (§8.4) and structure', () => {
-  it('emits ≤ 2 gradients and ≤ 1500 SVG nodes', () => {
+  it('emits exactly 2 gradients (sky dome + water sheet) and ≤ 1500 SVG nodes (§8.4)', () => {
     const nodes = goldenSvg.match(/<(svg|defs|linearGradient|stop|rect|polygon|polyline)\b/g) ?? [];
     expect(nodes.length).toBeLessThanOrEqual(1500);
+    expect(nodes.length).toBeGreaterThan(350); // P4 adds sky/mountains/city beyond the ocean
     const gradients = goldenSvg.match(/<linearGradient\b/g) ?? [];
-    expect(gradients.length).toBeLessThanOrEqual(2);
+    expect(gradients.length).toBe(2); // sky.top→sky.horizon + water.far→water.body
   });
 
-  it('is a well-formed SVG document with the flat placeholder background', () => {
+  it('is a well-formed SVG document with the sky.top zenith background (P4 sky dome)', () => {
     expect(goldenSvg.startsWith('<svg ')).toBe(true);
     expect(goldenSvg.trimEnd().endsWith('</svg>')).toBe(true);
     expect(goldenSvg).toContain('data-vf-frame="0"');
-    expect(goldenSvg).toMatch(/<rect[^>]*fill="#e89a6a"\/>/); // sky.horizon placeholder, P4 replaces it
+    expect(goldenSvg).toContain(
+      `<rect x="0" y="0" width="1920" height="1080" fill="${palette['sky.top']}"/>`,
+    );
+  });
+
+  it('haze never adds a gradient — mountain/city fills resolve to flat hex (§5.6)', () => {
+    // The two gradients are exactly the sky + water sheets; everything else is flat fill.
+    expect(goldenSvg).not.toContain('fill="url(#vf-grad-2)"');
   });
 });

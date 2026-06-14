@@ -7,14 +7,24 @@
 export { verifyExport, type VerifyReport } from './verify';
 export { type GateResult, type GateStatus } from './gate';
 export { flowLawGate } from './flow-law';
+export { layerGrowthGate } from './layer-growth';
 export {
   flowForPair,
   foeRadialityGate,
   foe480,
   medianFlowMag,
+  reliableBlocks,
+  reliableMedianMag,
+  blockStructureLambdaMin,
   hasStaticTexturedGeometry,
   STATIC_TEXTURED_FEATURE_TYPES,
 } from './foe';
-export { blockMatchFlow, DEFAULT_OPTS, type MatchOptions, type MatchResult, type FlowVector } from './matcher';
-export { decodePngToGray, loadGrayPng, type GrayImage } from './png';
+export {
+  blockMatchFlow,
+  DEFAULT_OPTS,
+  type MatchOptions,
+  type MatchResult,
+  type FlowVector,
+} from './matcher';
+export { decodePngToGray, decodePngToRgb, loadGrayPng, type GrayImage, type RgbImage } from './png';
 export { downscaleGray, FLOW_W, FLOW_H } from './downscale';

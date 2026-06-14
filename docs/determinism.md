@@ -74,6 +74,19 @@ diagnostic that rides along.
   `renderFrameSVG` output to node — so the Seekable Composition Contract (§6.4) is render-contract-
   faithful and the HyperFrames adapter can drive the same file. A mismatch exits 4.
 
+**P4 update (2026-06-14):** the canonical scene became the full harbor-dusk frame (sky dome +
+mountains + city + haze/glow), so both goldens were re-baked under the ritual.
+- Frame-0 **domHash** re-baked `e16e8b37…` → **`a04c2519…`**. Named visual change (ritual step
+  1): P4 adds the projected sky dome (2nd gradient sky.top→sky.horizon), 3 haze-mixed mountain
+  ranges, and the prism city + spire; the background is now the flat sky.top zenith fill. 426
+  SVG nodes, exactly 2 gradients (§8.4). Produced by a double-render byte-equality check in
+  `gen-golden.ts`.
+- `goldens/harbor-dusk.framehash.darwin-arm64.json` extended from the P3 subset {0, 90} to the
+  **full canonical set {0, 90, 225, 360, 449}** (the full 15 s scene now exists). Two
+  independent `vf hash` runs produced byte-identical manifests (invariant 7); the browser↔node
+  domHash cross-check passed for all five. Frame 449 (t ≈ 15 s) was visually verified before
+  the commit (operator pin). Platform tag `darwin-arm64`, pinned Chromium build 1223.
+
 To update a golden hash:
 
 1. The PR must include a note **naming the visual change** that justifies the update

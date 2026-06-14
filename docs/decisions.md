@@ -226,3 +226,83 @@ analytic peak flow.
   tracked mid-field; the fast near edge is a motion-blur consideration, not judder. **SPEC
   default stays 30 fps** (§11.2 unchanged); `--fps 60` is supported and advisable for scenes
   with fast yaw pans or a prominent very-near foreground. Re-evaluate when such a scene exists.
+
+---
+
+## P4 results — 2026-06-14
+
+Environment: Apple M1 (8 cores, 16 GB), macOS 26.2 · node 22.14.0 · Playwright 1.60.0 /
+Chromium 148.0.7778.96 (build 1223) · ffmpeg-static 5.3.0 · pnpm 9.15.9.
+
+P4 added: projected **sky dome** (gradient band + sun + clouds — world geometry, rule 6),
+**atmosphere haze** (per-feature flat mix toward the haze token at build time, §5.6),
+**mountain ranges** (world-pinned Chaikin ridge curtains, haze-mixed, interior strokes),
+**city** (deterministic-Poisson backface-culled prism buildings + lognormal heights +
+landmark spire + sun-lit faces + windows). `projectPrims` now handles the `prism` kind and
+generic `cull:'back'` polygons; the renderer resolves `haze(...)`/glow tokens. 225 unit/
+property tests green (was 188 at P3). Full 15 s render: **0.129 s/frame** (450 frames; 29×
+inside the §5.7 4 s ceiling, perf measured though the exit-5 gate is P6).
+
+### Gate status against the §9 P4 done signal
+
+- **Style §8.4 — GREEN.** k-means top-6 coverage **98.2–98.5%** (≥ 80% req) on frames
+  {0, 225, 449} (`packages/export/scripts/style-check.ts`); **exactly 2 gradients** (sky
+  dome + water sheet); **426 SVG nodes** (≤ 1500). Haze resolves to flat hex — it never
+  adds a gradient. The flat-design palette + haze collapse to ~6 colours covering ~98%.
+- **Invariant 6 (layer growth, analytic) — GREEN.** `vf verify` projects the scene's real
+  landmarks (city width, spire, near range) over the constant-speed segment **[9.5, 14.5] s,
+  v = 42 m/s, Δt = 5 s** (operator pin) and matches D/(D−vΔt) to **max rel err 0.288%**
+  (≪ 1%): city-width ×1.094 (0.001%), spire ×1.091 (0.238%), mountain ×1.050 (0.288% — the
+  curvature term on the far vertical span). Growth ×1.05–1.09 is well above the 1% tolerance,
+  so the gate has real signal, not noise.
+- **Invariant 1 (flow-law) — GREEN** (unchanged): max rel err 0.0032%.
+- **Invariant 7 (determinism) — GREEN.** Two independent `vf hash` runs of {0, 90, 225, 360,
+  449} produced byte-identical frameHash manifests; the **node↔browser domHash cross-check
+  passed** for all five (the esbuild bundle renders identically to node). Goldens re-baked
+  (ritual honored): frame-0 domHash `e16e8b37…` → **`a04c2519…`** (named change: P4 full
+  frame), and `harbor-dusk.framehash.darwin-arm64.json` extended from {0,90} to the full
+  canonical {0,90,225,360,449}. Frame 449 (t ≈ 15 s, 3.2 swell wavelengths) visually verified
+  before commit (operator pin).
+
+### Invariant 2 (FOE radiality) — **SKIP on harbor-dusk** (the one done-signal item NOT met) — needs an operator call
+
+The Δ-baseline ruling (option A) was built faithfully and **its mechanism works**: `vf verify`
+scans Δ ∈ {1,5,15,30,60,90,120} × sampled starts, logs every (Δ, start)'s reliable count +
+median, and correctly finds measurable-flow pairs (e.g. Δ30–120 with reliable-block median
+3–8 px) — fixing the sub-pixel consecutive-frame problem. The FOE uses net displacement; the
+reliability filter adds a saturation cap + a MAD match-quality gate (which excludes the
+decorrelated animated ocean at wide Δ).
+
+**But the gate still SKIPS**, because harbor-dusk cannot meet the matcher's preconditions
+(exit 0 — a skip is not a fail; CLAUDE rule 4 forbids forcing it):
+
+- **textured = 173 < 400.** The flat-design aesthetic is the cause: the 480p frame is mostly
+  large flat fills, and the thin ocean crest strokes wash out under the 1920→854 box
+  downscale, so only ~173 of 1428 blocks clear the variance gate. SPEC §8.3's ≥ 400 floor
+  was calibrated on S3's synthetic 3-octave noise (866 textured) — it does not describe real
+  flat-design renders.
+- **reliable = 25 < 60.** The static city/mountains sit at SI-true 2.2–11 km, so at 480p the
+  skyline is ~13 blocks wide × ~1 tall and the ridges are 1-D edges (low λ_min) — only ~25
+  2-D-corner blocks. Windows would add corners but at ≥ 1.8 km each window is sub-pixel at
+  480p, so they do not register.
+- Of those 25, only **12% are radial** — the few reliable blocks are ocean-foam-contaminated
+  (anisotropic traveling swell), exactly the §5.1/decisions-P3 aperture+phase-velocity reason.
+
+**This is not a physics failure.** Invariant 1 (the SAME flow field, computed analytically by
+projection) passes at 0.0032%, and invariant 6 confirms the growth law. The empirical
+block-matcher simply has no valid input on a flat-design, distant, ocean-dominated composition
+at 480p — the scene is structurally unsuited to it, the same way the P3 ocean was.
+
+**Recommendation (operator decision needed).** The natural remedy is a near-field
+static-textured **calibration scene** (camera close to a windowed city, minimal ocean) where
+≥ 400 textured + ≥ 60 reliable + ≥ 90% radial fire cleanly — option B from the P4 plan. Per
+the P4/P6 boundary, calibration scenes are a **P6** artifact (the inv-4/5 panorama calibration
+scenes are explicitly P6), so I did **not** add one in P4. Options:
+1. **Accept the SKIP for P4** — physics is proven by invariants 1 + 6; move "invariant 2 fires
+   green" to P6 alongside the other calibration scenes. (Recommended — keeps phase discipline.)
+2. **Add an inv-2 calibration scene now** (pure scene data, ~no engine change) to demonstrate
+   the gate firing green this phase, accepting it reaches into P6 scope.
+3. Re-derive SPEC §8.3's ≥ 400 textured floor for flat-design statistics — does not by itself
+   fix the ocean-contamination (12% radial), so insufficient alone.
+
+Everything else in P4 is green and staged; this is the single open item.

@@ -15,6 +15,7 @@ import { cameraQuat } from '../camera/pose';
 import { qFromYawPitchRoll, qMul, qRotate } from '../math/quat';
 import { degToRad } from '../math/constants';
 import { effectiveEarthRadiusM } from '../math/curvature';
+import type { Vec3 } from '../math/vec3';
 import { vDist } from '../math/vec3';
 import type { FlightProvider } from '../flight/flight-provider';
 import { createPathFlightProvider } from '../flight/flight-provider';
@@ -24,10 +25,12 @@ import { mountQuat } from '../camera/mount';
 import type { RectilinearProjection } from '../camera/projection-rectilinear';
 import { createRectilinearProjection } from '../camera/projection-rectilinear';
 import type { CurvatureParams } from '../camera/project';
-import type { Budget, Entity, FeatureGenerator, LodContext } from './entity';
+import type { Budget, Entity, FeatureContext, FeatureGenerator, LodContext } from './entity';
 import { groundFootprintAabb, capFarthestFirst } from './streaming';
 import { PAINTER_LAYER, painterSort } from './painter-sort';
-import { createOceanGenerator, OCEAN_SHEET_ID } from '../features/ocean';
+import { OCEAN_SHEET_ID } from '../features/ocean';
+import { createFeatureGenerator } from '../features/registry';
+import { createSkyDomeGenerator } from '../features/sky-dome';
 
 /** §5.3 pool caps — the default visible-set budget (Z1 ≤ 150, Z2 ≤ 400). */
 export const DEFAULT_BUDGET: Budget = { z1Max: 150, z2Max: 400 };
@@ -38,6 +41,8 @@ export interface World {
   readonly projection: RectilinearProjection;
   /** Curvature params for projectPrims (§3.3); mirrors atmosphere.curvature. */
   readonly curvature: CurvatureParams;
+  /** Sun direction (world unit vector toward the sun) for prism wall shading (§5.6). */
+  readonly lightDirWorld: Vec3;
   /** The path flight provider (§4.2): poseAt/speed/length — exposed for the harness's invariant-1 gate. */
   readonly flight: FlightProvider;
   /**
@@ -78,9 +83,6 @@ export function createWorld(spec: SceneSpec): World {
   const curvature: CurvatureParams = { enabled: spec.atmosphere.curvature.enabled, rEffM };
 
   const oceanSpecs = spec.features.filter((f): f is OceanFeatureSpec => f.type === 'ocean');
-  const features: FeatureGenerator[] = oceanSpecs.map((o) => createOceanGenerator(o, spec.seed));
-  // City/mountain generators land at P4; createWorld silently skips feature types it
-  // has no generator for, so a full harbor-dusk scene renders ocean-only here.
   // Z1/Z2 painter-layer boundary (the ocean caps crest generation at its own z2M).
   const z1M = oceanSpecs[0]?.zones.z1M ?? 350;
 
@@ -88,6 +90,34 @@ export function createWorld(spec: SceneSpec): World {
   // PIN #3 lives inside createPathFlightProvider: the §5.2 over-length guard throws
   // here, before the trajectory table is built (createWorld → CLI exit 2). ----
   const flight = createPathFlightProvider(spec.flight.points, spec.flight.speedProfile, durationS);
+
+  // Sun direction (bearing az: 0 = +y/north, 90 = +x/east; el above the horizon) — drives
+  // city wall lighting and the sky sun (§5.6). lightDirWorld points FROM geometry TOWARD
+  // the sun; the renderer passes it to projectPrims.
+  const sunAzRad = degToRad(spec.sky.sun.azimuthDeg);
+  const sunElRad = degToRad(spec.sky.sun.elevationDeg);
+  const lightDirWorld: Vec3 = {
+    x: Math.cos(sunElRad) * Math.sin(sunAzRad),
+    y: Math.cos(sunElRad) * Math.cos(sunAzRad),
+    z: Math.sin(sunElRad),
+  };
+  // Build-time feature context (§5.6): haze toward the haze token; haze origin = the
+  // flight-start position (operator ruling 2026-06-14, "not per frame").
+  const featureCtx: FeatureContext = {
+    seed: spec.seed,
+    hazeKm: spec.atmosphere.hazeKm,
+    hazeToken: spec.atmosphere.hazeToken,
+    sunDirWorld: lightDirWorld,
+    hazeOriginM: flight.poseAt(0).posM,
+    rEffM,
+  };
+  // Features from spec.features (via the registry; unknown types skipped) + the sky dome
+  // from spec.sky. P3 rendered ocean-only; the P4 city/mountain/sky generators land here.
+  const features: FeatureGenerator[] = spec.features
+    .map((f) => createFeatureGenerator(f, featureCtx, spec.seed))
+    .filter((g): g is FeatureGenerator => g !== null);
+  features.push(createSkyDomeGenerator(spec.sky, featureCtx, spec.seed));
+
   const jitterConfig: JitterConfig = {
     ampDeg: spec.flight.jitter.ampDeg,
     yawAmpDeg: spec.flight.jitter.yawAmpDeg,
@@ -122,7 +152,9 @@ export function createWorld(spec: SceneSpec): World {
     if (entity.featureId === 'ocean') {
       return distM < z1M ? PAINTER_LAYER.OCEAN_Z1 : PAINTER_LAYER.OCEAN_Z2;
     }
-    return PAINTER_LAYER.CITY; // P4 features; none reach here in P2
+    if (entity.featureId === 'sky_dome') return PAINTER_LAYER.SKY_DOME;
+    if (entity.featureId === 'mountain_ranges') return PAINTER_LAYER.MOUNTAINS;
+    return PAINTER_LAYER.CITY; // city buildings + landmark (§5.5)
   }
 
   function visibleSet(pose: CameraPose, budget: Budget): Entity[] {
@@ -165,6 +197,7 @@ export function createWorld(spec: SceneSpec): World {
     render: { widthPx, heightPx, fps: spec.render.fps, durationS },
     projection,
     curvature,
+    lightDirWorld,
     flight,
     altitudeFloorM,
     featureTypes: features.map((f) => f.type),

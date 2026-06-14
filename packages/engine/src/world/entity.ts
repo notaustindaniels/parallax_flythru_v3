@@ -17,13 +17,36 @@ export type PrimKind = 'polyline' | 'polygon' | 'prism';
 /** A drawable primitive in the owning entity's LOCAL frame (meters, relative to anchorM). */
 export interface Prim {
   kind: PrimKind;
-  /** polyline/polygon: the vertex list. prism (P4): footprint ring + heightM. */
+  /** polyline/polygon: the vertex list. prism (P4): footprint ring (extruded by heightM). */
   pts: Vec3[];
+  /** prism (P4): extrusion height (m) above the footprint ring. */
   heightM?: number;
   /** Resolves to a fill/stroke via the palette (renderer-side, §4.4). */
   styleToken: string;
   /** Polygon/closed-polyline flag; default open. */
   closed?: boolean;
+  /**
+   * Backface culling (P4, §5.5). 'back' ⇒ the renderer's projection drops this face
+   * when its outward normal points away from the camera (outward·view ≥ 0). Used by
+   * city walls and window quads (a window's normal is its wall's). The outward normal
+   * is the geometric normal of the vertex ring, so the ring must wind CCW seen from
+   * OUTSIDE. Prism walls are culled intrinsically; this is for the standalone polygons.
+   */
+  cull?: 'back';
+  /**
+   * prism (P4): fill for sun-facing walls (outward·sunDir > 0). Walls facing away use
+   * styleToken (the shaded side). Lighting is by the scene sun (constant), not the
+   * camera — so it is view-stable. Absent ⇒ all faces use styleToken.
+   */
+  litToken?: string;
+  /**
+   * Glow accent (P4, §5.6): the renderer emits two same-fill halo clones (×1.35/×1.9,
+   * opacity .30/.12) of this shape in palette[glowToken], then the core in styleToken.
+   * Used by sun disc and city windows.
+   */
+  glowToken?: string;
+  /** Glow: apply feGaussianBlur(2.2) to the outer halo (§5.6 "accent layer only" — sun). */
+  glowBlur?: boolean;
 }
 
 /** Per-frame animation outputs (SPEC §4.2 animate). Unused in P2 (static frame); P3 fills it. */
@@ -85,6 +108,27 @@ export interface FeatureGenerator {
   type: string;
   /** Entities whose anchors fall in `region`, up to ~`budget` (world applies precise §5.3 caps). */
   entitiesInRegion(region: Aabb2, lod: LodContext, budget: number): Entity[];
+}
+
+/**
+ * Build-time scene context a feature generator needs beyond its own spec (P4). Created
+ * once at createWorld (the schema boundary); degrees are already radians here. Carries
+ * the atmosphere (haze) and sun (lighting) so distant features can self-haze (§5.6) and
+ * city walls can pick their sun-lit face — both at build time, not per frame.
+ */
+export interface FeatureContext {
+  /** Master scene seed (every RNG key is prefixed with it, §3.2). */
+  seed: number;
+  /** Haze depth scale (km) — fill mixes toward hazeToken by 1−e^(−D/hazeKm·1000) (§5.6). */
+  hazeKm: number;
+  /** Palette key for the haze colour (atmosphere.hazeToken). */
+  hazeToken: string;
+  /** World unit vector pointing FROM the scene TOWARD the sun (lighting, §5.6). */
+  sunDirWorld: Vec3;
+  /** Reference position for haze depth D: the flight-start camera pos (operator ruling 2026-06-14). */
+  hazeOriginM: Vec3;
+  /** Effective earth radius (m); matches createWorld's value (curvature-aware placement). */
+  rEffM: number;
 }
 
 // ---- helpers ----

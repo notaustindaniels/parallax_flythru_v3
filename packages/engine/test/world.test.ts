@@ -61,13 +61,19 @@ describe('World.visibleSet (§5.3, §5.5)', () => {
   const pose = world.poseAt(0);
   const visible = world.visibleSet(pose, DEFAULT_BUDGET);
 
-  it('returns the Z3 sheet back-most (painter order, back→front)', () => {
+  it('paints the sky dome back-most, then the Z3 sheet before any crest (§5.5)', () => {
     expect(visible.length).toBeGreaterThan(1);
-    expect(visible[0]!.id).toBe(OCEAN_SHEET_ID);
+    // Sky dome is painter-layer 0 — behind everything (P4).
+    expect(visible[0]!.featureId).toBe('sky_dome');
+    const sheetIdx = visible.findIndex((e) => e.id === OCEAN_SHEET_ID);
+    const firstCrestIdx = visible.findIndex((e) => /\/ocean\/row:/.test(e.id));
+    expect(sheetIdx).toBeGreaterThanOrEqual(0);
+    expect(firstCrestIdx).toBeGreaterThan(sheetIdx); // sheet behind the crests
   });
 
-  it('everything after the sheet is an ocean crest', () => {
-    for (const e of visible.slice(1)) {
+  it('everything after the Z3 sheet is an ocean crest (sky precedes the sheet)', () => {
+    const sheetIdx = visible.findIndex((e) => e.id === OCEAN_SHEET_ID);
+    for (const e of visible.slice(sheetIdx + 1)) {
       expect(e.featureId).toBe('ocean');
       expect(e.id).toMatch(/\/ocean\/row:-?\d+\/seg:-?\d+$/);
     }

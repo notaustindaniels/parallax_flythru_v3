@@ -10,11 +10,14 @@
 //   3. near-plane clip at y_c = NEAR_CLIP_M (room-studio2's, ported in P1).
 //   4. proj.project → screen pixels. preservesLines ⇒ straight segments from endpoints.
 //
-// P2 implements the preservesLines (rectilinear) path. The equirect panorama needs
-// adaptive sampling (sampleSegmentEquirect, already in P1) — wired at P5 with the
-// studio; calling projectPrims with a non-line-preserving projection throws here.
+// P4 adds the 'prism' kind (city buildings): a footprint ring extruded by heightM into
+// backface-culled wall faces + roof (§5.5), with sun-lit face shading. Standalone
+// polygons may set cull:'back' (window quads) for the same backface test. The equirect
+// panorama still needs adaptive sampling (P5) — calling projectPrims with a non-line-
+// preserving projection throws here.
 
 import type { Vec3 } from '../math/vec3';
+import { vAdd, vDot, vSub } from '../math/vec3';
 import { curvatureDropM } from '../math/curvature';
 import type { CameraPose } from './pose';
 import { worldToCamera } from './pose';
@@ -27,11 +30,21 @@ export interface CurvatureParams {
   rEffM: number;
 }
 
+/** Scene lighting for prism wall shading (§5.6): the sun direction in world frame. */
+export interface LightParams {
+  /** World unit vector pointing FROM the geometry TOWARD the sun. */
+  dirWorld: Vec3;
+}
+
 export interface ScreenPath {
   kind: 'polyline' | 'polygon';
   pts: ScreenPoint[];
   styleToken: string;
   closed: boolean;
+  /** Glow accent (§5.6): renderer emits halo clones in this token around the shape. */
+  glowToken?: string;
+  /** Glow: blur the outer halo (accent layer only — the sun). */
+  glowBlur?: boolean;
 }
 
 /** World vertex → camera frame, applying the curvature drop first (§3.3). */
@@ -119,17 +132,124 @@ function projectAll(camPts: Vec3[], proj: Projection): ScreenPoint[] | null {
   return pts;
 }
 
+// ---- backface culling (§5.5) ----
+
+function centroidOf(pts: Vec3[]): Vec3 {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const p of pts) {
+    x += p.x;
+    y += p.y;
+    z += p.z;
+  }
+  const n = pts.length;
+  return { x: x / n, y: y / n, z: z / n };
+}
+
+/**
+ * Newell's normal of a (possibly non-planar) world-frame ring — direction follows the
+ * winding (CCW seen from the front ⇒ points toward that front). Not normalized; only
+ * its sign/direction is used. Generators that set cull:'back' must wind the ring CCW as
+ * seen from OUTSIDE so this is the outward normal.
+ */
+function newellNormal(pts: Vec3[]): Vec3 {
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i]!;
+    const b = pts[(i + 1) % n]!;
+    nx += (a.y - b.y) * (a.z + b.z);
+    ny += (a.z - b.z) * (a.x + b.x);
+    nz += (a.x - b.x) * (a.y + b.y);
+  }
+  return { x: nx, y: ny, z: nz };
+}
+
+/** Visible iff the outward normal points toward the eye: outward · (centroid − cam) < 0 (§5.5). */
+function isBackface(outwardNormal: Vec3, faceCentroidM: Vec3, camPosM: Vec3): boolean {
+  return vDot(outwardNormal, vSub(faceCentroidM, camPosM)) >= 0;
+}
+
+/** Project one already-backface-passed world-frame face to a screen polygon (near-clipped). */
+function projectFace(
+  worldPts: Vec3[],
+  styleToken: string,
+  pose: CameraPose,
+  proj: Projection,
+  curv: CurvatureParams,
+): ScreenPath | null {
+  const cam = worldPts.map((p) => toCameraCurved(p, pose, curv));
+  const clipped = clipPolygonNear(cam);
+  if (clipped.length < 3) return null;
+  const screen = projectAll(clipped, proj);
+  if (screen === null) return null;
+  return { kind: 'polygon', pts: screen, styleToken, closed: true };
+}
+
+/**
+ * Expand a prism (footprint ring in world frame + heightM) into its visible faces:
+ * backface-culled wall quads (sun-lit face uses litToken) + roof. Footprint winding
+ * is irrelevant — each wall's outward normal is oriented away from the footprint
+ * centroid, so the cull is robust (§5.5).
+ */
+function projectPrism(
+  prim: Prim,
+  pose: CameraPose,
+  proj: Projection,
+  curv: CurvatureParams,
+  light?: LightParams,
+): ScreenPath[] {
+  const ring = prim.pts;
+  const n = ring.length;
+  if (n < 3 || prim.heightM === undefined) return [];
+  const heightM = prim.heightM;
+  const baseCentroid = centroidOf(ring);
+  const up: Vec3 = { x: 0, y: 0, z: heightM };
+  const out: ScreenPath[] = [];
+
+  // Walls.
+  for (let i = 0; i < n; i++) {
+    const b0 = ring[i]!;
+    const b1 = ring[(i + 1) % n]!;
+    const t1 = vAdd(b1, up);
+    const t0 = vAdd(b0, up);
+    const face = [b0, b1, t1, t0];
+    const mid = centroidOf(face);
+    // Outward normal = horizontal edge-perp, oriented away from the footprint centroid.
+    let nrm: Vec3 = { x: b1.y - b0.y, y: -(b1.x - b0.x), z: 0 };
+    if (vDot(nrm, vSub(mid, baseCentroid)) < 0) nrm = { x: -nrm.x, y: -nrm.y, z: 0 };
+    if (isBackface(nrm, mid, pose.posM)) continue;
+    const lit = prim.litToken !== undefined && light !== undefined && vDot(nrm, light.dirWorld) > 0;
+    const path = projectFace(face, lit ? prim.litToken! : prim.styleToken, pose, proj, curv);
+    if (path !== null) out.push(path);
+  }
+
+  // Roof (outward normal = +z). Visible only from above; sun is low, so it stays shaded.
+  const roof = ring.map((p) => vAdd(p, up));
+  const roofMid = centroidOf(roof);
+  if (!isBackface({ x: 0, y: 0, z: 1 }, roofMid, pose.posM)) {
+    const path = projectFace(roof, prim.styleToken, pose, proj, curv);
+    if (path !== null) out.push(path);
+  }
+  return out;
+}
+
 /**
  * Project WORLD-frame prims to screen paths (SPEC §6.1). Prims must already be in
  * world coordinates — place local entity prims with placePrims(…, anchorM) first.
- * Returns 0+ paths per prim (a near-clipped polyline can split). A polygon that
- * clips to < 3 vertices, or a polyline run that fully fails to project, is dropped.
+ * Returns 0+ paths per prim (a near-clipped polyline can split; a prism yields its
+ * visible faces). A polygon that clips to < 3 vertices, a backface, or a run that
+ * fails to project, is dropped. `light` (the sun direction) shades prism walls.
  */
 export function projectPrims(
   prims: Prim[],
   pose: CameraPose,
   proj: Projection,
   curv: CurvatureParams,
+  light?: LightParams,
 ): ScreenPath[] {
   if (!proj.preservesLines) {
     throw new Error(
@@ -139,16 +259,28 @@ export function projectPrims(
   const out: ScreenPath[] = [];
   for (const prim of prims) {
     if (prim.kind === 'prism') {
-      // Prisms (city buildings) draw silhouette + backface-culled walls — P4.
-      throw new Error('projectPrims: prism prims land at P4 (city).');
+      out.push(...projectPrism(prim, pose, proj, curv, light));
+      continue;
     }
     const camPts = prim.pts.map((p) => toCameraCurved(p, pose, curv));
     if (prim.kind === 'polygon') {
+      if (
+        prim.cull === 'back' &&
+        isBackface(newellNormal(prim.pts), centroidOf(prim.pts), pose.posM)
+      )
+        continue;
       const clipped = clipPolygonNear(camPts);
       if (clipped.length < 3) continue;
       const screen = projectAll(clipped, proj);
       if (screen === null) continue;
-      out.push({ kind: 'polygon', pts: screen, styleToken: prim.styleToken, closed: true });
+      out.push({
+        kind: 'polygon',
+        pts: screen,
+        styleToken: prim.styleToken,
+        closed: true,
+        glowToken: prim.glowToken,
+        glowBlur: prim.glowBlur,
+      });
     } else {
       for (const run of clipPolylineNear(camPts)) {
         const screen = projectAll(run, proj);
@@ -158,6 +290,8 @@ export function projectPrims(
           pts: screen,
           styleToken: prim.styleToken,
           closed: prim.closed ?? false,
+          glowToken: prim.glowToken,
+          glowBlur: prim.glowBlur,
         });
       }
     }

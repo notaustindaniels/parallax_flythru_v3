@@ -1,18 +1,29 @@
-// Invariant 2 — FOE radiality (SPEC §5.1, §8.3): on two consecutive exported frames in
-// forward flight, ≥ 90% of textured sample blocks have flow within 30° of radially
-// OUTWARD from the focus of expansion (block-matching flow). The FOE is the projection
-// of the camera's velocity direction (a vanishing point — curvature-free, computed from
-// the world poses). Per the S3 erratum (docs/decisions.md), classification counts only
-// blocks with measured |flow| ≥ 2 px, where the integer matcher's quantization bound
-// atan(0.5/2) ≈ 14° sits comfortably inside the 30° tolerance.
+// Invariant 2 — FOE radiality (SPEC §5.1, §8.3): on two exported frames in forward
+// flight, ≥ 90% of RELIABLE textured sample blocks have flow within 30° of radially
+// OUTWARD from the focus of expansion. The FOE is the projection of the camera's
+// velocity direction (a vanishing point, curvature-free, computed from the world poses).
 //
-// APPLICABILITY (operator ruling 2026-06-14, option A — SPEC §5.1/§8.3): the gate
-// presumes STATIC world-pinned textured geometry, so block-matching flow is camera-
-// induced. The animated ocean violates that (anisotropic crest/foam → aperture problem;
-// swell phase velocity moves the tracked pattern), so on a scene with no static textured
-// feature the gate SKIPS (status 'skip' — not pass, not fail) with a diagnostic. The
-// physics is covered unconditionally by invariant 1 (analytic). The gate fires for real
-// at P4 when city/mountains add static texture. hasStaticTexturedGeometry is the detector.
+// Δ-BASELINE (operator ruling A, 2026-06-14; SPEC §5.1/§8.3 amendment): the two frames
+// are Δ apart, Δ chosen by verify so the reliable (static-geometry) flow lands in the
+// matcher's measurable window. With SI-true distances the city/mountains grow ~0.018%/
+// frame — sub-pixel between consecutive frames — so consecutive-frame flow is below the
+// integer matcher's floor; a wider Δ measures the SAME steady push-in flow field in the
+// matcher's valid regime. Tolerances (30°, 90%, ≥400 textured) are unchanged.
+//
+// A "reliable" block (the radiality is classified ONLY over these):
+//   • textured           — variance ≥ 100 (matcher's gate; in result.vectors already)
+//   • 2≤|flow|≤searchPx−1 — ≥2 px clears the integer-quantization bound (S3 erratum);
+//                           the upper cap drops blocks saturated at the ±search edge.
+//   • corner (λmin≥τ)     — structure-tensor 2-D gate; a 1-D edge reports its edge-normal
+//                           (aperture problem), not the true flow, so its direction is unusable.
+//   • good match (MAD≤τ)  — mean abs SAD/px small ⇒ a real correspondence. This is what
+//                           excludes the ANIMATED ocean at wide Δ: traveling-swell foam
+//                           decorrelates (opacity gating + phase travel) → high SAD → dropped,
+//                           leaving the static city/mountain blocks the gate is meant to test.
+//
+// APPLICABILITY (option A): the gate presumes static world-pinned textured geometry; on a
+// scene with none (ocean+sky only) it SKIPS with a diagnostic. It also skips if a pair
+// yields < 400 textured or < RELIABLE_MIN reliable blocks (precondition unmet — not a fail).
 
 import type { World } from '@vectorflight/engine';
 import { cameraQuat, qRotateInv } from '@vectorflight/engine';
@@ -34,31 +45,32 @@ export const STATIC_TEXTURED_FEATURE_TYPES: ReadonlySet<string> = new Set([
 
 /**
  * True if the world RENDERS any static world-pinned textured feature (§8.3 precondition).
- * Keyed off world.featureTypes (ACTIVE generators), not spec.features (authored intent):
- * harbor-dusk's spec lists city/mountains but P3 renders ocean-only, so this is false in
- * P3 and becomes true at P4 when those generators land — "the gate fires for real at P4".
+ * Keyed off world.featureTypes (ACTIVE generators), not spec.features (authored intent).
  */
 export function hasStaticTexturedGeometry(world: World): boolean {
   return world.featureTypes.some((t) => STATIC_TEXTURED_FEATURE_TYPES.has(t));
 }
 
 const MIN_FLOW_PX = 2; // S3 erratum: only classify blocks with |flow| ≥ 2 px
+const MAX_FLOW_PX = DEFAULT_OPTS.searchPx - 1; // drop blocks saturated at the ±search edge
 const RADIAL_TOL_DEG = 30; // SPEC §5.1 invariant 2
 const RADIAL_FRACTION_REQ = 0.9; // ≥ 90%
 const TEXTURED_MIN = 400; // SPEC §8.3 variance-gated block floor
-// Structure-tensor λ_min floor: below it a block is an aperture-afflicted edge whose
-// flow DIRECTION is unreliable (P3 refinement, §8.3; calibrate via VF_FOE_DEBUG=1).
+// Structure-tensor λ_min floor: below it a block is an aperture-afflicted edge whose flow
+// DIRECTION is unreliable (P3 refinement, §8.3; calibrate via VF_FOE_DEBUG=1).
 const CORNER_LAMBDA_MIN = 2000;
-// Minimum reliable (corner ∧ |flow|≥2) blocks for the radiality measurement to be valid.
+// Match-quality gate: mean abs SAD per px. A real (static) correspondence is small; an
+// animated/decorrelated block is large. This is what excludes the wide-Δ ocean.
+const MATCH_MAD_MAX = 14;
+// Minimum reliable blocks for the radiality measurement to be valid (else SKIP).
 const RELIABLE_MIN = 60;
-const SIM_DT_S = 1 / 120;
 
 export interface PairFlow {
   result: MatchResult;
   grayA: Uint8Array; // 480p frame-A luma, for per-block structure scoring
 }
 
-/** Decode + downscale a consecutive PNG pair and run the block matcher (480p). */
+/** Decode + downscale a PNG pair (A, B) and run the block matcher (480p). */
 export function flowForPair(pngPathA: string, pngPathB: string): PairFlow {
   const grayA = downscaleGray(loadGrayPng(pngPathA));
   const b = downscaleGray(loadGrayPng(pngPathB));
@@ -68,8 +80,6 @@ export function flowForPair(pngPathA: string, pngPathB: string): PairFlow {
 /**
  * Gradient structure-tensor min-eigenvalue over a block — a corner/2D-structure score.
  * An edge has gradients in ONE direction (λ_min ≈ 0); a corner has two (λ_min large).
- * Block-matching flow DIRECTION is only reliable where λ_min is high — on a 1D edge the
- * aperture problem makes the matcher report the edge-normal component, not the true flow.
  */
 export function blockStructureLambdaMin(
   gray: Uint8Array,
@@ -96,7 +106,42 @@ export function blockStructureLambdaMin(
   return tr / 2 - disc;
 }
 
-/** Median |flow| over textured vectors — the pair-selection score (S3: pick ≥ ~3 px). */
+interface ReliableBlock {
+  cx: number; // block center, 480p px
+  cy: number;
+  du: number;
+  dv: number;
+  mag: number;
+}
+
+/** The reliable blocks of a pair (textured ∧ flow-window ∧ corner ∧ good-match). */
+export function reliableBlocks(flow: PairFlow): ReliableBlock[] {
+  const { result, grayA } = flow;
+  const blockPx = DEFAULT_OPTS.blockPx;
+  const half = blockPx / 2;
+  const n2 = blockPx * blockPx;
+  const out: ReliableBlock[] = [];
+  for (const v of result.vectors) {
+    const mag = Math.hypot(v.du, v.dv);
+    if (mag < MIN_FLOW_PX || mag > MAX_FLOW_PX) continue;
+    if (v.sad / n2 > MATCH_MAD_MAX) continue;
+    if (blockStructureLambdaMin(grayA, FLOW_W, v.x, v.y, blockPx) < CORNER_LAMBDA_MIN) continue;
+    out.push({ cx: v.x + half, cy: v.y + half, du: v.du, dv: v.dv, mag });
+  }
+  return out;
+}
+
+/** Median |flow| of the reliable blocks — verify's Δ-pair selection score. */
+export function reliableMedianMag(flow: PairFlow): number {
+  const mags = reliableBlocks(flow)
+    .map((b) => b.mag)
+    .sort((a, b) => a - b);
+  if (mags.length === 0) return 0;
+  const m = mags.length >> 1;
+  return mags.length % 2 ? mags[m]! : (mags[m - 1]! + mags[m]!) / 2;
+}
+
+/** Median |flow| over all textured vectors (legacy diagnostic). */
 export function medianFlowMag(result: MatchResult): number {
   const mags = result.vectors.map((v) => Math.hypot(v.du, v.dv)).sort((x, y) => x - y);
   if (mags.length === 0) return 0;
@@ -104,17 +149,24 @@ export function medianFlowMag(result: MatchResult): number {
   return mags.length % 2 ? mags[m]! : (mags[m - 1]! + mags[m]!) / 2;
 }
 
-/** FOE in 480p pixel coords from the camera velocity direction, or null if not ahead. */
-export function foe480(world: World, frameA: number, fps: number): { u: number; v: number } | null {
-  const tA = frameA / fps;
-  const p0 = world.poseAt(tA).posM;
-  const p1 = world.poseAt(tA + SIM_DT_S).posM;
+/**
+ * FOE in 480p pixel coords from the NET camera displacement over the pair [frameA,frameB],
+ * projected at the start pose — a scale-free vanishing point. null if not moving forward.
+ */
+export function foe480(
+  world: World,
+  frameA: number,
+  frameB: number,
+  fps: number,
+): { u: number; v: number } | null {
+  const p0 = world.poseAt(frameA / fps).posM;
+  const p1 = world.poseAt(frameB / fps).posM;
   const vel = { x: p1.x - p0.x, y: p1.y - p0.y, z: p1.z - p0.z };
   const len = Math.hypot(vel.x, vel.y, vel.z);
   if (len === 0) return null;
-  const pose = world.poseAt(tA);
+  const pose = world.poseAt(frameA / fps);
   const dirCam = qRotateInv(cameraQuat(pose), { x: vel.x / len, y: vel.y / len, z: vel.z / len });
-  const s = world.projection.project(dirCam); // ratio map ⇒ scale-free vanishing point
+  const s = world.projection.project(dirCam);
   if (s === null) return null;
   return {
     u: (s.u * FLOW_W) / world.projection.widthPx,
@@ -125,63 +177,52 @@ export function foe480(world: World, frameA: number, fps: number): { u: number; 
 export function foeRadialityGate(
   world: World,
   frameA: number,
+  frameB: number,
   fps: number,
   flow: PairFlow,
 ): GateResult {
-  const { result, grayA } = flow;
-  const blockPx = DEFAULT_OPTS.blockPx;
+  const id = 'invariant-2-foe-radiality';
   const thresholdStr = `≥${RADIAL_FRACTION_REQ * 100}% within ${RADIAL_TOL_DEG}°, textured ≥${TEXTURED_MIN}, reliable ≥${RELIABLE_MIN}`;
-  const foe = foe480(world, frameA, fps);
+  const foe = foe480(world, frameA, frameB, fps);
   if (foe === null)
-    return { id: 'invariant-2-foe-radiality', status: 'skip', measured: 'FOE not ahead of camera (no forward motion in this pair)', threshold: thresholdStr };
+    return {
+      id,
+      status: 'skip',
+      measured: 'FOE not ahead of camera (no forward motion in this pair)',
+      threshold: thresholdStr,
+    };
 
   const cosTol = Math.cos((RADIAL_TOL_DEG * Math.PI) / 180);
-
-  // Per-candidate (textured, |flow|≥2px) data, plus its 2D-structure score.
-  const cand = result.vectors
-    .map((vec) => {
-      const mag = Math.hypot(vec.du, vec.dv);
-      const rx = vec.x + blockPx / 2 - foe.u;
-      const ry = vec.y + blockPx / 2 - foe.v;
-      const rlen = Math.hypot(rx, ry);
-      const radial = rlen > 1e-6 && (vec.du * rx + vec.dv * ry) / (mag * rlen) >= cosTol;
-      const lambda = blockStructureLambdaMin(grayA, FLOW_W, vec.x, vec.y, blockPx);
-      return { mag, rlen, radial, lambda };
-    })
-    .filter((c) => c.mag >= MIN_FLOW_PX && c.rlen > 1e-6);
-
-  if (process.env.VF_FOE_DEBUG) {
-    const ls = cand.map((c) => c.lambda).sort((a, b) => a - b);
-    const pct = (p: number) => ls[Math.min(ls.length - 1, Math.floor((p / 100) * ls.length))] ?? 0;
-    process.stderr.write(`  [debug] λmin p50=${pct(50).toFixed(0)} p75=${pct(75).toFixed(0)} p90=${pct(90).toFixed(0)} max=${(ls[ls.length - 1] ?? 0).toFixed(0)}\n`);
-    for (const t of [0, 200, 500, 1000, 2000, 4000, 8000]) {
-      const sub = cand.filter((c) => c.lambda >= t);
-      const frac = sub.length ? sub.filter((c) => c.radial).length / sub.length : 0;
-      process.stderr.write(`  [debug] λmin≥${t}: ${sub.length} blocks, ${(frac * 100).toFixed(1)}% radial\n`);
-    }
+  const reliable = reliableBlocks(flow);
+  let radialCount = 0;
+  for (const b of reliable) {
+    const rx = b.cx - foe.u;
+    const ry = b.cy - foe.v;
+    const rlen = Math.hypot(rx, ry);
+    if (rlen <= 1e-6) continue;
+    if ((b.du * rx + b.dv * ry) / (b.mag * rlen) >= cosTol) radialCount++;
   }
-
-  // Classify only over blocks with reliable flow: 2D-structured (corner) AND |flow|≥2px.
-  const reliable = cand.filter((c) => c.lambda >= CORNER_LAMBDA_MIN);
-  const radialCount = reliable.filter((c) => c.radial).length;
   const fraction = reliable.length > 0 ? radialCount / reliable.length : 0;
-  const where = `textured ${result.texturedBlocks}/${result.totalBlocks}, reliable ${reliable.length}; FOE (${foe.u.toFixed(0)},${foe.v.toFixed(0)})@480p; pair f${frameA}→${frameA + 1}`;
+  const where = `textured ${flow.result.texturedBlocks}/${flow.result.totalBlocks}, reliable ${reliable.length}; FOE (${foe.u.toFixed(0)},${foe.v.toFixed(0)})@480p; pair f${frameA}→f${frameB} (Δ${frameB - frameA})`;
 
-  // Precondition (§8.3): enough textured + reliable static-texture blocks. If unmet the
-  // measurement is not valid → SKIP (not a fail), per the option-A applicability ruling.
-  if (result.texturedBlocks < TEXTURED_MIN || reliable.length < RELIABLE_MIN)
+  if (process.env.VF_FOE_DEBUG)
+    process.stderr.write(
+      `  [debug] ${where}: ${radialCount}/${reliable.length} radial = ${(fraction * 100).toFixed(1)}%\n`,
+    );
+
+  // Precondition (§8.3): enough textured + reliable static-texture blocks, else SKIP.
+  if (flow.result.texturedBlocks < TEXTURED_MIN || reliable.length < RELIABLE_MIN)
     return {
-      id: 'invariant-2-foe-radiality',
+      id,
       status: 'skip',
       measured: `precondition unmet (${where}) — need textured ≥${TEXTURED_MIN}, reliable ≥${RELIABLE_MIN}`,
       threshold: thresholdStr,
     };
 
   return {
-    id: 'invariant-2-foe-radiality',
+    id,
     status: fraction >= RADIAL_FRACTION_REQ ? 'pass' : 'fail',
-    measured:
-      `${(fraction * 100).toFixed(1)}% radial of ${reliable.length} reliable blocks (|flow|≥${MIN_FLOW_PX}px, λmin≥${CORNER_LAMBDA_MIN}); ` + where,
+    measured: `${(fraction * 100).toFixed(1)}% radial of ${reliable.length} reliable blocks (2≤|flow|≤${MAX_FLOW_PX}px, λmin≥${CORNER_LAMBDA_MIN}, MAD≤${MATCH_MAD_MAX}); ${where}`,
     threshold: thresholdStr,
   };
 }
