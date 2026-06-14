@@ -50,6 +50,15 @@ Golden frames: indices **{0, 90, 225, 360, 449}** of the canonical scene(s); com
 **frameHash** entries in a platform-tagged `vf hash` manifest (domHash rides along — see
 "Two hashes" above) once P3 lands `vf hash`.
 
+**P2 interim (2026-06-14):** with no Playwright/`vf hash` yet, the P2 done signal "golden frame
+#0 committed" is met at the **domHash** level only — `packages/renderer-svg/goldens/harbor-dusk.frame-0000.svg`
+(the canonical DOM serialization that `renderFrameSVG` emits) plus `harbor-dusk.domhash.json`
+(its SHA-256). domHash is platform-independent, so this golden carries no platform tag. The
+ritual is honored at this level: `gen-golden.ts` and the renderer test both render frame #0 twice
+from scratch and require byte-equality before the golden is trusted. P3 adds the **frameHash**
+manifest (the PNG-bytes golden) for the full index set; this domHash golden then becomes the
+diagnostic that rides along.
+
 To update a golden hash:
 
 1. The PR must include a note **naming the visual change** that justifies the update

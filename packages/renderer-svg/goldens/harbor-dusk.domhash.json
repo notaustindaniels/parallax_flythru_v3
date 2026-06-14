@@ -1,0 +1,8 @@
+{
+  "note": "P2 golden frame #0 — domHash only. frameHash manifest lands at P3 with `vf hash`/Playwright (docs/determinism.md). domHash is platform-independent (a function of engine+renderer output), so it carries no platform tag.",
+  "scene": "harbor-dusk",
+  "frame": 0,
+  "coordDecimals": 3,
+  "domHash": "83824c1d3bc86e8fbaee4c9386994cb1ff95b13e0cdd49d1dca644dc8868898d",
+  "producedBy": "packages/renderer-svg/scripts/gen-golden.ts"
+}
