@@ -264,7 +264,7 @@ inside the §5.7 4 s ceiling, perf measured though the exit-5 gate is P6).
   canonical {0,90,225,360,449}. Frame 449 (t ≈ 15 s, 3.2 swell wavelengths) visually verified
   before commit (operator pin).
 
-### Invariant 2 (FOE radiality) — **SKIP on harbor-dusk** (the one done-signal item NOT met) — needs an operator call
+### Invariant 2 (FOE radiality) — **SKIP on harbor-dusk**; inv-2-green deferred to P6 (operator-ratified 2026-06-14, option 1)
 
 The Δ-baseline ruling (option A) was built faithfully and **its mechanism works**: `vf verify`
 scans Δ ∈ {1,5,15,30,60,90,120} × sampled starts, logs every (Δ, start)'s reliable count +
@@ -293,16 +293,20 @@ projection) passes at 0.0032%, and invariant 6 confirms the growth law. The empi
 block-matcher simply has no valid input on a flat-design, distant, ocean-dominated composition
 at 480p — the scene is structurally unsuited to it, the same way the P3 ocean was.
 
-**Recommendation (operator decision needed).** The natural remedy is a near-field
-static-textured **calibration scene** (camera close to a windowed city, minimal ocean) where
-≥ 400 textured + ≥ 60 reliable + ≥ 90% radial fire cleanly — option B from the P4 plan. Per
-the P4/P6 boundary, calibration scenes are a **P6** artifact (the inv-4/5 panorama calibration
-scenes are explicitly P6), so I did **not** add one in P4. Options:
-1. **Accept the SKIP for P4** — physics is proven by invariants 1 + 6; move "invariant 2 fires
-   green" to P6 alongside the other calibration scenes. (Recommended — keeps phase discipline.)
-2. **Add an inv-2 calibration scene now** (pure scene data, ~no engine change) to demonstrate
-   the gate firing green this phase, accepting it reaches into P6 scope.
-3. Re-derive SPEC §8.3's ≥ 400 textured floor for flat-design statistics — does not by itself
-   fix the ocean-contamination (12% radial), so insufficient alone.
+The natural remedy is a near-field static-textured **calibration scene** (camera close to a
+windowed city, minimal ocean) where ≥ 400 textured + ≥ 60 reliable + ≥ 90% radial fire cleanly
+— option B from the P4 plan. Per the P4/P6 boundary, calibration scenes are a **P6** artifact
+(the inv-4/5 panorama calibration scenes are explicitly P6).
 
-Everything else in P4 is green and staged; this is the single open item.
+**Resolution (operator, 2026-06-14): option 1 — accept the SKIP for P4.** The P4 §9 done
+signal (style gates + invariant 6) is met; the harbor-dusk physics is proven by invariants 1
+(0.0032%) + 6 (0.288%) analytically. **"Invariant 2 fires green" moves to P6**, to be
+demonstrated on a dedicated near-field FOE calibration scene checked into `scenes/calibration/`
+alongside the inv-4/5 horizon/roll calibration scenes. The harness, Δ-baseline selection, and
+applicability/skip machinery are already built and validated here; P6 only adds the scene. The
+≥ 400 textured floor (§8.3) was calibrated on synthetic noise; re-deriving it for flat-design
+statistics is a P6 sub-question, but is insufficient alone (it does not fix the 12%-radial
+ocean contamination) — the calibration scene is the real fix.
+
+Everything else in P4 is green and committed (a139005); invariant 2's empirical pass is the
+only deferred item, now scheduled for P6.
